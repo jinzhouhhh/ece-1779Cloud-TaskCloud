@@ -1,0 +1,8 @@
+node_modules
+.git
+.env
+*.md
+pgdata
+backups
+coverage
+.DS_Store

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskCloud - Collaborative Task Management</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Auth View -->
+    <div id="auth-view" class="view">
+      <div class="auth-container">
+        <div class="auth-header">
+          <h1><span class="logo-icon">&#9729;</span> TaskCloud</h1>
+          <p>Collaborative Task Management Platform</p>
+        </div>
+        <div class="auth-tabs">
+          <button class="tab active" data-tab="login">Sign In</button>
+          <button class="tab" data-tab="register">Sign Up</button>
+        </div>
+        <form id="login-form" class="auth-form">
+          <div class="form-group">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" placeholder="you@example.com" required>
+          </div>
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" placeholder="Your password" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+        </form>
+        <form id="register-form" class="auth-form hidden">
+          <div class="form-group">
+            <label for="register-username">Username</label>
+            <input type="text" id="register-username" placeholder="johndoe" required>
+          </div>
+          <div class="form-group">
+            <label for="register-email">Email</label>
+            <input type="email" id="register-email" placeholder="you@example.com" required>
+          </div>
+          <div class="form-group">
+            <label for="register-password">Password</label>
+            <input type="password" id="register-password" placeholder="Min 6 characters" required minlength="6">
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">Create Account</button>
+        </form>
+        <div id="auth-error" class="error-msg hidden"></div>
+      </div>
+    </div>
+
+    <!-- Main App View -->
+    <div id="main-view" class="view hidden">
+      <nav class="topbar">
+        <div class="topbar-left">
+          <h1><span class="logo-icon">&#9729;</span> TaskCloud</h1>
+        </div>
+        <div class="topbar-center">
+          <div class="search-box">
+            <input type="text" id="search-input" placeholder="Search tasks...">
+            <button id="search-btn" class="btn btn-sm">Search</button>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <span id="user-display" class="user-badge"></span>
+          <span id="ws-status" class="ws-indicator" title="WebSocket status"></span>
+          <button id="logout-btn" class="btn btn-sm btn-outline">Logout</button>
+        </div>
+      </nav>
+
+      <div class="main-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+          <div class="sidebar-section">
+            <div class="sidebar-header">
+              <h3>Teams</h3>
+              <button id="create-team-btn" class="btn btn-sm btn-primary">+ New</button>
+            </div>
+            <ul id="team-list" class="nav-list"></ul>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-header">
+              <h3>Projects</h3>
+              <button id="create-project-btn" class="btn btn-sm btn-primary">+ New</button>
+            </div>
+            <ul id="project-list" class="nav-list"></ul>
+          </div>
+        </aside>
+
+        <!-- Content Area -->
+        <main class="content">
+          <!-- Welcome / Empty State -->
+          <div id="welcome-panel" class="panel">
+            <div class="empty-state">
+              <h2>Welcome to TaskCloud</h2>
+              <p>Select a project from the sidebar to view tasks, or create a new team to get started.</p>
+            </div>
+          </div>
+
+          <!-- Team Detail -->
+          <div id="team-detail" class="panel hidden">
+            <div class="panel-header">
+              <h2 id="team-detail-name"></h2>
+              <span id="team-detail-role" class="badge"></span>
+            </div>
+            <p id="team-detail-desc" class="text-muted"></p>
+            <div class="section">
+              <h3>Members</h3>
+              <ul id="team-members-list" class="member-list"></ul>
+              <div id="add-member-form" class="inline-form hidden">
+                <input type="email" id="add-member-email" placeholder="User email">
+                <select id="add-member-role">
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button id="add-member-submit" class="btn btn-sm btn-primary">Add</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Task Board -->
+          <div id="task-board" class="panel hidden">
+            <div class="panel-header">
+              <h2 id="project-title"></h2>
+              <button id="create-task-btn" class="btn btn-primary">+ New Task</button>
+            </div>
+            <div class="board-columns">
+              <div class="board-column">
+                <div class="column-header todo-header">To Do</div>
+                <div id="col-todo" class="column-cards" data-status="todo"></div>
+              </div>
+              <div class="board-column">
+                <div class="column-header progress-header">In Progress</div>
+                <div id="col-in-progress" class="column-cards" data-status="in_progress"></div>
+              </div>
+              <div class="board-column">
+                <div class="column-header done-header">Done</div>
+                <div id="col-done" class="column-cards" data-status="done"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Search Results -->
+          <div id="search-results" class="panel hidden">
+            <div class="panel-header">
+              <h2>Search Results</h2>
+              <button id="close-search" class="btn btn-sm btn-outline">Close</button>
+            </div>
+            <div id="search-results-list"></div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div class="modal" id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

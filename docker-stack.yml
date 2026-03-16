@@ -1,0 +1,81 @@
+# Docker Swarm stack for production deployment on DigitalOcean
+version: "3.8"
+
+services:
+  app:
+    image: ${DOCKER_REGISTRY:-registry.digitalocean.com/taskcloud}/taskcloud-app:${TAG:-latest}
+    ports:
+      - "80:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: taskcloud
+      DB_USER: taskcloud
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      JWT_EXPIRES_IN: 7d
+    secrets:
+      - db_password
+      - jwt_secret
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+    depends_on:
+      - db
+    networks:
+      - app-net
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: taskcloud
+      POSTGRES_USER: taskcloud
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+    networks:
+      - app-net
+
+secrets:
+  db_password:
+    external: true
+  jwt_secret:
+    external: true
+
+volumes:
+  pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/taskcloud_data/pgdata
+
+networks:
+  app-net:
+    driver: overlay
