@@ -122,7 +122,7 @@ Together, these components demonstrate an end-to-end cloud-native application in
 
 8. Scope and Feasibility
 
-The project scope is intentionally designed for small collaborative teams to ensure feasibility within the course timeline. Core functionality including authentication, task management, persistent storage, orchestration, and monitoring forms the minimum viable system. Advanced features will extend functionality without affecting completion of required components. By limiting system scale while fully implementing cloud infrastructure concepts, the project prioritizes depth of implementation and reliable deployment over unnecessary complexity.
+The project scope is designed for small collaborative teams to ensure feasibility within the course timeline. Core functionality including authentication, task management, persistent storage, orchestration, and monitoring forms the minimum viable system. Advanced features will extend functionality without affecting completion of required components. By limiting system scale while fully implementing cloud infrastructure concepts, the project prioritizes depth of implementation and reliable deployment over unnecessary complexity.
 
 
 
