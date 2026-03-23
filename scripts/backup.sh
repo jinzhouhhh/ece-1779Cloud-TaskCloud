@@ -9,7 +9,7 @@
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-/opt/taskcloud/backups}"
-DB_CONTAINER="${DB_CONTAINER:-taskcloud_db}"
+DB_CONTAINER="${DB_CONTAINER:-$(docker ps --filter name=taskcloud_db --format '{{.Names}}' | head -n1)}"
 DB_NAME="${DB_NAME:-taskcloud}"
 DB_USER="${DB_USER:-taskcloud}"
 RETENTION_DAYS="${RETENTION_DAYS:-7}"
