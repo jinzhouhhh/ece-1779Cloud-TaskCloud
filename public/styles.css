@@ -267,6 +267,7 @@ textarea { resize: vertical; min-height: 80px; }
 }
 
 .panel-header h2 { font-size: 20px; }
+.panel-actions { display: flex; gap: 8px; align-items: center; }
 
 .empty-state {
   text-align: center;

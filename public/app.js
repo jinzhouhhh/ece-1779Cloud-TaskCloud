@@ -4,6 +4,7 @@ let currentUser = null;
 let ws = null;
 let selectedTeamId = null;
 let selectedProjectId = null;
+let currentTeamRole = null;
 let teams = [];
 let projects = [];
 
@@ -186,6 +187,7 @@ async function selectTeam(id) {
     $('#team-detail-desc').textContent = team.description || 'No description';
     const myMembership = team.members.find((m) => m.id === currentUser.id);
     const role = myMembership ? myMembership.role : 'member';
+    currentTeamRole = role;
     const roleEl = $('#team-detail-role');
     roleEl.textContent = role;
     roleEl.className = `badge badge-${role}`;
@@ -193,10 +195,26 @@ async function selectTeam(id) {
     const membersList = $('#team-members-list');
     membersList.innerHTML = team.members
       .map(
-        (m) =>
-          `<li><span>${m.username} (${m.email})</span> <span class="badge badge-${m.role}">${m.role}</span></li>`
+        (m) => {
+          const removeBtn = (role === 'admin' && m.id !== currentUser.id)
+            ? `<button class="btn btn-sm btn-danger remove-member-btn" data-user-id="${m.id}">Remove</button> `
+            : '';
+          return `<li><span>${m.username} (${m.email})</span> <span>${removeBtn}<span class="badge badge-${m.role}">${m.role}</span></span></li>`;
+        }
       )
       .join('');
+
+    membersList.querySelectorAll('.remove-member-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Remove this member from the team?')) return;
+        try {
+          await api(`/api/teams/${id}/members/${btn.dataset.userId}`, { method: 'DELETE' });
+          selectTeam(id);
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
 
     if (role === 'admin') show($('#add-member-form'));
     else hide($('#add-member-form'));
@@ -271,6 +289,15 @@ async function selectProject(id) {
   renderProjects();
   const proj = projects.find((p) => p.id === id);
   if (proj) $('#project-title').textContent = proj.name;
+
+  if (currentTeamRole === 'admin') {
+    show($('#edit-project-btn'));
+    show($('#delete-project-btn'));
+  } else {
+    hide($('#edit-project-btn'));
+    hide($('#delete-project-btn'));
+  }
+
   showPanel('board');
   loadTasks();
 }
@@ -292,6 +319,40 @@ $('#create-project-btn').addEventListener('click', () => {
       loadProjects(selectedTeamId);
     }
   );
+});
+
+$('#edit-project-btn').addEventListener('click', () => {
+  if (!selectedProjectId) return;
+  const proj = projects.find((p) => p.id === selectedProjectId);
+  if (!proj) return;
+  openModal(
+    'Edit Project',
+    `<div class="form-group"><label>Name</label><input id="m-proj-name" value="${escapeAttr(proj.name)}"></div>
+     <div class="form-group"><label>Description</label><textarea id="m-proj-desc">${escapeHtml(proj.description || '')}</textarea></div>`,
+    async () => {
+      await api(`/api/projects/${selectedProjectId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: $('#m-proj-name').value, description: $('#m-proj-desc').value }),
+      });
+      closeModal();
+      loadProjects(selectedTeamId);
+      $('#project-title').textContent = $('#m-proj-name').value;
+    }
+  );
+});
+
+$('#delete-project-btn').addEventListener('click', async () => {
+  if (!selectedProjectId) return;
+  const proj = projects.find((p) => p.id === selectedProjectId);
+  if (!confirm(`Delete project "${proj ? proj.name : ''}" and all its tasks? This cannot be undone.`)) return;
+  try {
+    await api(`/api/projects/${selectedProjectId}`, { method: 'DELETE' });
+    selectedProjectId = null;
+    loadProjects(selectedTeamId);
+    showPanel('team');
+  } catch (err) {
+    alert(err.message);
+  }
 });
 
 /* ── Tasks ── */
