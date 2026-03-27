@@ -5,24 +5,83 @@ A **stateful cloud-native** web application for teams to manage tasks with real-
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Docker Swarm Cluster                   │
-│  ┌─────────────┐  ┌─────────────┐                        │
-│  │  App Replica │  │  App Replica │  (Node.js + Express)  │
-│  │   :3000      │  │   :3000      │                       │
-│  └──────┬───────┘  └──────┬───────┘                       │
-│         │     Overlay Network     │                       │
-│         └──────────┬──────────────┘                       │
-│                    │                                      │
-│            ┌───────▼────────┐                             │
-│            │   PostgreSQL   │                             │
-│            │  (persistent)  │                             │
-│            └───────┬────────┘                             │
-│                    │                                      │
-│            ┌───────▼────────┐                             │
-│            │  DO Volume     │  (/mnt/taskcloud_data)      │
-│            └────────────────┘                             │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              GitHub Actions CI/CD                               │
+│                                                                                 │
+│   Push to main ──> Run Tests ──> Build Image ──> Push to Registry ──> Deploy    │
+└──────────────────────────────────────────┬──────────────────────────────────────┘
+                                           │ SSH deploy
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  DigitalOcean Droplet (Ubuntu + Docker)                        Monitoring Agent │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │                         Docker Swarm Cluster                               │ │
+│  │                                                                            │ │
+│  │  ┌──────────────────── Overlay Network (app-net) ───────────────────────┐ │ │
+│  │  │                                                                      │ │ │
+│  │  │  ┌─────────────────────┐     ┌─────────────────────┐                 │ │ │
+│  │  │  │   App Replica 1     │     │   App Replica 2     │                 │ │ │
+│  │  │  │                     │     │                     │                 │ │ │
+│  │  │  │  Express API :3000  │     │  Express API :3000  │  Load Balanced  │ │ │
+│  │  │  │  WebSocket   /ws    │     │  WebSocket   /ws    │  via Swarm      │ │ │
+│  │  │  │  Static UI   /      │     │  Static UI   /      │  Routing Mesh   │ │ │
+│  │  │  │                     │     │                     │                 │ │ │
+│  │  │  │  ┌───────────────┐  │     │  ┌───────────────┐  │                 │ │ │
+│  │  │  │  │  Middleware   │  │     │  │  Middleware   │  │                 │ │ │
+│  │  │  │  │  ├─ Helmet    │  │     │  │  ├─ Helmet    │  │                 │ │ │
+│  │  │  │  │  ├─ JWT Auth  │  │     │  │  ├─ JWT Auth  │  │                 │ │ │
+│  │  │  │  │  └─ RBAC      │  │     │  │  └─ RBAC      │  │                 │ │ │
+│  │  │  │  └───────────────┘  │     │  └───────────────┘  │                 │ │ │
+│  │  │  └──────────┬──────────┘     └──────────┬──────────┘                 │ │ │
+│  │  │             │         ┌─────────────────┘                            │ │ │
+│  │  │             ▼         ▼                                              │ │ │
+│  │  │  ┌─────────────────────────┐                                         │ │ │
+│  │  │  │     PostgreSQL 16       │                                         │ │ │
+│  │  │  │                         │                                         │ │ │
+│  │  │  │  users                  │                                         │ │ │
+│  │  │  │  teams                  │                                         │ │ │
+│  │  │  │  team_memberships       │    ┌─────────────────────────┐          │ │ │
+│  │  │  │  projects               │───▶│  Docker Secret          │          │ │ │
+│  │  │  │  tasks                  │    │  /run/secrets/db_pass   │          │ │ │
+│  │  │  │                         │    │  /run/secrets/jwt_secret│          │ │ │
+│  │  │  │  GIN full-text index    │    └─────────────────────────┘          │ │ │
+│  │  │  └────────────┬────────────┘                                         │ │ │
+│  │  │               │                                                      │ │ │
+│  │  └───────────────┼──────────────────────────────────────────────────────┘ │ │
+│  │                  │                                                        │ │
+│  └──────────────────┼────────────────────────────────────────────────────────┘ │
+│                     │ bind mount                                               │
+│                     ▼                                                          │
+│  ┌─────────────────────────────────┐    ┌──────────────────────────────────┐   │
+│  │   DigitalOcean Volume (10 GiB)  │    │   Cron: Nightly pg_dump Backup   │   │
+│  │   /mnt/taskcloud_data/pgdata    │    │   /opt/taskcloud/backups/        │   │
+│  │                                 │    │   (optional: → DO Spaces)        │   │
+│  │   Persists across:              │    └──────────────────────────────────┘   │
+│  │   • container restarts          │                                           │
+│  │   • stack redeployments         │    ┌──────────────────────────────────┐   │
+│  │   • droplet rebuilds            │    │   DO Monitoring Dashboard        │   │
+│  │                                 │    │   CPU / Memory / Disk Alerts     │   │
+│  └─────────────────────────────────┘    └──────────────────────────────────┘   │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                  Clients                                        │
+│                                                                                 │
+│   Browser A ──── HTTP REST ────▶ :80 ──▶ Swarm routes to Replica 1 or 2         │
+│             ──── WebSocket ────▶ /ws ──▶ Real-time task push updates            │
+│                                                                                 │
+│   Browser B ──── HTTP REST ────▶ :80 ──▶ Swarm routes to Replica 1 or 2         │
+│             ──── WebSocket ────▶ /ws ──▶ Receives broadcast when A changes task │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+  Client ──▶ Swarm LB ──▶ App Replica ──▶ JWT Auth ──▶ RBAC Check ──▶ PostgreSQL
+                                │
+                                └──▶ broadcast(teamId, event) ──▶ WebSocket push
+                                                                   to all team
+                                                                   members online
 ```
 
 ## Features

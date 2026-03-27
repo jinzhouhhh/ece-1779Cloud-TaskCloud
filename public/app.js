@@ -114,8 +114,13 @@ async function enterApp() {
 }
 
 /* ── WebSocket ── */
+let wsIntentionalClose = false;
+
 function connectWS() {
-  if (ws) ws.close();
+  if (ws) {
+    wsIntentionalClose = true;
+    ws.close();
+  }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}`);
 
@@ -127,7 +132,10 @@ function connectWS() {
   ws.onclose = () => {
     $('#ws-status').className = 'ws-indicator disconnected';
     $('#ws-status').title = 'Disconnected — will reconnect';
-    setTimeout(connectWS, 3000);
+    if (!wsIntentionalClose) {
+      setTimeout(connectWS, 3000);
+    }
+    wsIntentionalClose = false;
   };
 
   ws.onmessage = (evt) => {
@@ -154,10 +162,18 @@ function showPanel(name) {
 }
 
 /* ── Teams ── */
+let knownTeamIds = [];
+
 async function loadTeams() {
   try {
     teams = await api('/api/teams');
     renderTeams();
+
+    const newTeamIds = teams.map((t) => t.id).sort().join(',');
+    if (newTeamIds !== knownTeamIds.join(',')) {
+      knownTeamIds = teams.map((t) => t.id).sort();
+      connectWS();
+    }
   } catch (err) {
     console.error('Failed to load teams:', err);
   }
