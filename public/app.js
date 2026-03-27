@@ -90,8 +90,12 @@ $('#register-form').addEventListener('submit', async (e) => {
 $('#logout-btn').addEventListener('click', () => {
   token = null;
   currentUser = null;
+  knownTeamIds = [];
   localStorage.removeItem('token');
-  if (ws) ws.close();
+  if (ws) {
+    wsIntentionalClose = true;
+    ws.close();
+  }
   hide($('#main-view'));
   show($('#auth-view'));
 });
@@ -108,7 +112,6 @@ async function enterApp() {
   hide($('#auth-view'));
   show($('#main-view'));
   $('#user-display').textContent = currentUser.username;
-  connectWS();
   loadTeams();
   showPanel('welcome');
 }
@@ -170,7 +173,7 @@ async function loadTeams() {
     renderTeams();
 
     const newTeamIds = teams.map((t) => t.id).sort().join(',');
-    if (newTeamIds !== knownTeamIds.join(',')) {
+    if (!ws || ws.readyState > 1 || newTeamIds !== knownTeamIds.join(',')) {
       knownTeamIds = teams.map((t) => t.id).sort();
       connectWS();
     }
