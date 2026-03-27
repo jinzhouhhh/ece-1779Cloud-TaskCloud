@@ -86,5 +86,5 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            TAG=latest DOCKER_REGISTRY=${{ env.REGISTRY }} \
+            TAG=latest DOCKER_REGISTRY=${{ env.REGISTRY }}/taskcloud \
               docker stack deploy -c /opt/taskcloud/docker-stack.yml taskcloud --with-registry-auth
