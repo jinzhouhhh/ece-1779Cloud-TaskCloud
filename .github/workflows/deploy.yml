@@ -78,6 +78,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Stack definition (REDIS_URL, redis service, replicas, etc.) lives on the droplet at this path.
+      # Without syncing the file from the repo, only the image updates and env/services can stay stale.
+      - name: Sync docker-stack.yml to droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: docker-stack.yml
+          target: /opt/taskcloud/
+
       - name: Deploy to Swarm via SSH
         uses: appleboy/ssh-action@v1
         with:
