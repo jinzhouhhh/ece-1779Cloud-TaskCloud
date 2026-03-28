@@ -13,9 +13,19 @@ services:
       DB_PASSWORD: taskcloud_dev
       JWT_SECRET: dev-jwt-secret-change-in-production
       JWT_EXPIRES_IN: 7d
+      # Enables WebSocket broadcasts across multiple app replicas (same as Swarm prod)
+      REDIS_URL: redis://redis:6379
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
     restart: unless-stopped
 
   db:

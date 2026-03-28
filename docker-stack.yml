@@ -16,6 +16,7 @@ services:
       DB_PASSWORD_FILE: /run/secrets/db_password
       JWT_SECRET_FILE: /run/secrets/jwt_secret
       JWT_EXPIRES_IN: 7d
+      REDIS_URL: redis://redis:6379
     secrets:
       - db_password
       - jwt_secret
@@ -41,6 +42,20 @@ services:
       retries: 5
     depends_on:
       - db
+      - redis
+    networks:
+      - app-net
+
+  redis:
+    image: redis:7-alpine
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
     networks:
       - app-net
 

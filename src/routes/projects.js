@@ -54,7 +54,7 @@ router.get('/projects/:id', authenticate, requireProjectAccess, async (req, res)
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    res.json(result.rows[0]);
+    res.json({ ...result.rows[0], team_role: req.teamRole });
   } catch (err) {
     console.error('Get project error:', err);
     res.status(500).json({ error: 'Internal server error' });

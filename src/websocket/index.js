@@ -1,91 +1,140 @@
-const { WebSocketServer } = require('ws');
-const { verifyTokenFromString } = require('../middleware/auth');
+const WebSocket = require('ws');
 const pool = require('../config/db');
+const { verifyTokenFromString } = require('../middleware/auth');
+const { initRedisPubSub, getPublisher } = require('../config/redis');
 
-// Map of teamId -> Set of WebSocket clients
-const teamClients = new Map();
+const TEAM_CHANNEL_PREFIX = 'taskcloud:team:';
 
-function setupWebSocket(server) {
-  const wss = new WebSocketServer({ server, path: '/ws' });
+/** @type {Map<number, Set<import('ws')>>} */
+const teamSockets = new Map();
+
+/** @type {WeakMap<import('ws'), Set<number>>} */
+const socketTeams = new WeakMap();
+
+function addSocketToTeam(teamId, ws) {
+  if (!teamSockets.has(teamId)) {
+    teamSockets.set(teamId, new Set());
+  }
+  teamSockets.get(teamId).add(ws);
+  if (!socketTeams.has(ws)) {
+    socketTeams.set(ws, new Set());
+  }
+  socketTeams.get(ws).add(teamId);
+}
+
+function removeSocketFromAllTeams(ws) {
+  const teams = socketTeams.get(ws);
+  if (!teams) return;
+  for (const teamId of teams) {
+    const set = teamSockets.get(teamId);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) teamSockets.delete(teamId);
+    }
+  }
+  socketTeams.delete(ws);
+}
+
+function deliverToLocalSockets(teamId, rawMessage) {
+  const set = teamSockets.get(teamId);
+  if (!set) return;
+  for (const client of set) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(rawMessage);
+    }
+  }
+}
+
+/**
+ * Broadcast a task event to all connections for the given team (all app replicas when Redis is enabled).
+ */
+function broadcastToTeam(teamId, payload) {
+  const raw = JSON.stringify(payload);
+  const pub = getPublisher();
+  if (pub) {
+    pub.publish(`${TEAM_CHANNEL_PREFIX}${teamId}`, raw).catch((err) => {
+      console.error('Redis publish failed:', err.message);
+      deliverToLocalSockets(teamId, raw);
+    });
+  } else {
+    deliverToLocalSockets(teamId, raw);
+  }
+}
+
+/**
+ * @param {import('http').Server} server
+ */
+async function setupWebSocket(server) {
+  await initRedisPubSub((teamId, rawMessage) => {
+    deliverToLocalSockets(teamId, rawMessage);
+  });
+
+  const wss = new WebSocket.Server({ server, path: '/ws' });
+
+  const pingInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
+  wss.on('close', () => clearInterval(pingInterval));
 
   wss.on('connection', async (ws, req) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
 
+    let url;
+    try {
+      url = new URL(req.url, 'http://localhost');
+    } catch {
+      ws.close(1008, 'Invalid URL');
+      return;
+    }
+
+    const token = url.searchParams.get('token');
     if (!token) {
-      ws.close(4001, 'Authentication required');
+      ws.close(1008, 'Token required');
       return;
     }
 
     const decoded = verifyTokenFromString(token);
-    if (!decoded) {
-      ws.close(4001, 'Invalid token');
+    if (!decoded || !decoded.id) {
+      ws.close(1008, 'Invalid token');
       return;
     }
 
-    ws.userId = decoded.id;
-    ws.username = decoded.username;
-
-    // Fetch all teams the user belongs to and subscribe them
     try {
       const result = await pool.query(
         'SELECT team_id FROM team_memberships WHERE user_id = $1',
         [decoded.id]
       );
-
-      ws.teamIds = result.rows.map((r) => r.team_id);
-
-      for (const teamId of ws.teamIds) {
-        if (!teamClients.has(teamId)) {
-          teamClients.set(teamId, new Set());
-        }
-        teamClients.get(teamId).add(ws);
+      if (result.rows.length === 0) {
+        ws.close(1008, 'No team memberships');
+        return;
       }
-
-      ws.send(JSON.stringify({
-        type: 'connected',
-        message: `Connected as ${decoded.username}`,
-        teams: ws.teamIds,
-      }));
+      for (const row of result.rows) {
+        addSocketToTeam(row.team_id, ws);
+      }
     } catch (err) {
-      console.error('WebSocket setup error:', err);
-      ws.close(4500, 'Server error');
+      console.error('WebSocket team lookup error:', err.message);
+      ws.close(1011, 'Server error');
       return;
     }
 
     ws.on('close', () => {
-      if (ws.teamIds) {
-        for (const teamId of ws.teamIds) {
-          const clients = teamClients.get(teamId);
-          if (clients) {
-            clients.delete(ws);
-            if (clients.size === 0) {
-              teamClients.delete(teamId);
-            }
-          }
-        }
-      }
+      removeSocketFromAllTeams(ws);
     });
-
-    ws.on('error', (err) => {
-      console.error('WebSocket error:', err.message);
+    ws.on('error', () => {
+      removeSocketFromAllTeams(ws);
     });
   });
-
-  console.log('WebSocket server ready on /ws');
-  return wss;
-}
-
-function broadcastToTeam(teamId, message) {
-  const clients = teamClients.get(teamId);
-  if (!clients) return;
-
-  const payload = JSON.stringify(message);
-  for (const client of clients) {
-    if (client.readyState === 1) {
-      client.send(payload);
-    }
-  }
 }
 
 module.exports = { setupWebSocket, broadcastToTeam };

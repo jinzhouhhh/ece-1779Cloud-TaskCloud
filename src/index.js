@@ -40,7 +40,7 @@ const PORT = parseInt(process.env.PORT, 10) || 3000;
 
 async function start() {
   await initSchema();
-  setupWebSocket(server);
+  await setupWebSocket(server);
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`TaskCloud server running on port ${PORT}`);

@@ -196,6 +196,7 @@ textarea { resize: vertical; min-height: 80px; }
 }
 
 .ws-indicator.connected { background: var(--success); }
+.ws-indicator.connecting { background: var(--warning); }
 .ws-indicator.disconnected { background: var(--danger); }
 
 /* === Layout === */

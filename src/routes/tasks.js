@@ -183,7 +183,7 @@ router.get('/search/tasks', authenticate, async (req, res) => {
 
   try {
     let query = `
-      SELECT t.*, u.username as assignee_name, p.name as project_name, tm2.name as team_name
+      SELECT t.*, u.username as assignee_name, p.name as project_name, p.team_id, tm2.name as team_name
       FROM tasks t
       LEFT JOIN users u ON u.id = t.assigned_to
       JOIN projects p ON p.id = t.project_id

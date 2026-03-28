@@ -1,603 +1,668 @@
-/* ── State ── */
-let token = localStorage.getItem('token');
-let currentUser = null;
-let ws = null;
-let selectedTeamId = null;
-let selectedProjectId = null;
-let currentTeamRole = null;
-let teams = [];
-let projects = [];
+(function () {
+  const apiPrefix = '/api';
 
-/* ── API Helpers ── */
-const API = '';
+  let token = localStorage.getItem('taskcloud_token');
+  let user = null;
+  let teams = [];
+  let selectedTeamId = null;
+  let projects = [];
+  let selectedProjectId = null;
+  let selectedProjectTeamId = null;
+  let currentTeamRole = null;
+  let tasks = [];
 
-async function api(path, opts = {}) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API}${path}`, { ...opts, headers });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
-  return data;
-}
+  let ws = null;
+  let wsReconnectTimer = null;
+  let wsReconnectDelayMs = 1000;
+  const WS_MAX_BACKOFF_MS = 30000;
 
-/* ── DOM Helpers ── */
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
-const show = (el) => el.classList.remove('hidden');
-const hide = (el) => el.classList.add('hidden');
+  const $ = (id) => document.getElementById(id);
 
-/* ── Auth ── */
-$$('.auth-tabs .tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    $$('.auth-tabs .tab').forEach((t) => t.classList.remove('active'));
-    tab.classList.add('active');
-    if (tab.dataset.tab === 'login') {
-      show($('#login-form'));
-      hide($('#register-form'));
-    } else {
-      hide($('#login-form'));
-      show($('#register-form'));
+  function api(path, options = {}) {
+    const headers = { ...options.headers };
+    if (!headers['Content-Type'] && options.body && typeof options.body === 'string') {
+      headers['Content-Type'] = 'application/json';
     }
-    hide($('#auth-error'));
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return fetch(apiPrefix + path, { ...options, headers }).then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data.error || res.statusText || 'Request failed');
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    });
+  }
+
+  function setWsStatus(state) {
+    const el = $('ws-status');
+    if (!el) return;
+    el.classList.remove('connected', 'connecting', 'disconnected');
+    el.classList.add(
+      state === 'connected' ? 'connected' : state === 'connecting' ? 'connecting' : 'disconnected'
+    );
+    el.title =
+      state === 'connected'
+        ? 'Live updates connected'
+        : state === 'connecting'
+          ? 'Reconnecting…'
+          : 'Live updates offline (will retry)';
+  }
+
+  function disconnectWebSocket() {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+    if (ws) {
+      ws.onopen = ws.onclose = ws.onmessage = ws.onerror = null;
+      try {
+        ws.close();
+      } catch (_) {
+        /* ignore */
+      }
+      ws = null;
+    }
+    setWsStatus('disconnected');
+  }
+
+  function scheduleWebSocketReconnect() {
+    if (!token) return;
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = setTimeout(() => {
+      wsReconnectTimer = null;
+      connectWebSocket();
+    }, wsReconnectDelayMs);
+    wsReconnectDelayMs = Math.min(wsReconnectDelayMs * 2, WS_MAX_BACKOFF_MS);
+  }
+
+  function connectWebSocket() {
+    if (!token) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+    setWsStatus('connecting');
+
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      setWsStatus('disconnected');
+      scheduleWebSocketReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      wsReconnectDelayMs = 1000;
+      setWsStatus('connected');
+      if (selectedProjectId) loadTasks();
+    };
+
+    ws.onclose = () => {
+      ws = null;
+      setWsStatus('disconnected');
+      if (token) scheduleWebSocketReconnect();
+    };
+
+    ws.onerror = () => {
+      try {
+        ws.close();
+      } catch (_) {
+        /* ignore */
+      }
+    };
+
+    ws.onmessage = (ev) => {
+      let msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      if (!selectedProjectId) return;
+      if (msg.type === 'task:deleted') {
+        if (tasks.some((t) => Number(t.id) === Number(msg.taskId))) loadTasks();
+        return;
+      }
+      if (msg.task && Number(msg.task.project_id) === Number(selectedProjectId)) {
+        loadTasks();
+      }
+    };
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && token) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        wsReconnectDelayMs = 1000;
+        connectWebSocket();
+      }
+    }
   });
-});
 
-function showAuthError(msg) {
-  const el = $('#auth-error');
-  el.textContent = msg;
-  show(el);
-}
+  window.addEventListener('online', () => {
+    wsReconnectDelayMs = 1000;
+    if (token) connectWebSocket();
+  });
 
-$('#login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    const data = await api('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: $('#login-email').value,
-        password: $('#login-password').value,
-      }),
-    });
-    token = data.token;
-    currentUser = data.user;
-    localStorage.setItem('token', token);
-    enterApp();
-  } catch (err) {
-    showAuthError(err.message);
+  function showView(name) {
+    $('auth-view').classList.toggle('hidden', name !== 'auth');
+    $('main-view').classList.toggle('hidden', name !== 'main');
   }
-});
 
-$('#register-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    const data = await api('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        username: $('#register-username').value,
-        email: $('#register-email').value,
-        password: $('#register-password').value,
-      }),
-    });
-    token = data.token;
-    currentUser = data.user;
-    localStorage.setItem('token', token);
-    enterApp();
-  } catch (err) {
-    showAuthError(err.message);
+  function showAuthError(text) {
+    const el = $('auth-error');
+    el.textContent = text;
+    el.classList.remove('hidden');
   }
-});
 
-$('#logout-btn').addEventListener('click', () => {
-  token = null;
-  currentUser = null;
-  knownTeamIds = [];
-  localStorage.removeItem('token');
-  if (ws) {
-    wsIntentionalClose = true;
-    ws.close();
+  function hideAuthError() {
+    $('auth-error').classList.add('hidden');
   }
-  hide($('#main-view'));
-  show($('#auth-view'));
-});
 
-/* ── App Entry ── */
-async function enterApp() {
-  try {
-    currentUser = (await api('/api/auth/me')).user;
-  } catch {
-    localStorage.removeItem('token');
+  async function handleLogin(e) {
+    e.preventDefault();
+    hideAuthError();
+    const email = $('login-email').value.trim();
+    const password = $('login-password').value;
+    try {
+      const data = await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      token = data.token;
+      user = data.user;
+      localStorage.setItem('taskcloud_token', token);
+      await enterApp();
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  }
+
+  async function handleRegister(e) {
+    e.preventDefault();
+    hideAuthError();
+    const username = $('register-username').value.trim();
+    const email = $('register-email').value.trim();
+    const password = $('register-password').value;
+    try {
+      const data = await api('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, username, password }),
+      });
+      token = data.token;
+      user = data.user;
+      localStorage.setItem('taskcloud_token', token);
+      await enterApp();
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  }
+
+  function logout() {
     token = null;
-    return;
-  }
-  hide($('#auth-view'));
-  show($('#main-view'));
-  $('#user-display').textContent = currentUser.username;
-  loadTeams();
-  showPanel('welcome');
-}
-
-/* ── WebSocket ── */
-let wsIntentionalClose = false;
-
-function connectWS() {
-  if (ws) {
-    wsIntentionalClose = true;
-    ws.close();
-  }
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}`);
-
-  ws.onopen = () => {
-    $('#ws-status').className = 'ws-indicator connected';
-    $('#ws-status').title = 'Real-time connected';
-  };
-
-  ws.onclose = () => {
-    $('#ws-status').className = 'ws-indicator disconnected';
-    $('#ws-status').title = 'Disconnected — will reconnect';
-    if (!wsIntentionalClose) {
-      setTimeout(connectWS, 3000);
-    }
-    wsIntentionalClose = false;
-  };
-
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    handleWSMessage(msg);
-  };
-}
-
-function handleWSMessage(msg) {
-  if (!selectedProjectId) return;
-  if (msg.type === 'task:created' || msg.type === 'task:updated') {
-    if (msg.task.project_id === selectedProjectId) loadTasks();
-  }
-  if (msg.type === 'task:deleted') loadTasks();
-}
-
-/* ── Panel Management ── */
-function showPanel(name) {
-  ['welcome-panel', 'team-detail', 'task-board', 'search-results'].forEach((id) => hide($(`#${id}`)));
-  if (name === 'welcome') show($('#welcome-panel'));
-  if (name === 'team') show($('#team-detail'));
-  if (name === 'board') show($('#task-board'));
-  if (name === 'search') show($('#search-results'));
-}
-
-/* ── Teams ── */
-let knownTeamIds = [];
-
-async function loadTeams() {
-  try {
-    teams = await api('/api/teams');
-    renderTeams();
-
-    const newTeamIds = teams.map((t) => t.id).sort().join(',');
-    if (!ws || ws.readyState > 1 || newTeamIds !== knownTeamIds.join(',')) {
-      knownTeamIds = teams.map((t) => t.id).sort();
-      connectWS();
-    }
-  } catch (err) {
-    console.error('Failed to load teams:', err);
-  }
-}
-
-function renderTeams() {
-  const ul = $('#team-list');
-  ul.innerHTML = teams
-    .map(
-      (t) =>
-        `<li data-id="${t.id}" class="${t.id === selectedTeamId ? 'active' : ''}">${t.name}</li>`
-    )
-    .join('');
-
-  ul.querySelectorAll('li').forEach((li) => {
-    li.addEventListener('click', () => selectTeam(parseInt(li.dataset.id)));
-  });
-}
-
-async function selectTeam(id) {
-  selectedTeamId = id;
-  selectedProjectId = null;
-  renderTeams();
-  try {
-    const team = await api(`/api/teams/${id}`);
-    $('#team-detail-name').textContent = team.name;
-    $('#team-detail-desc').textContent = team.description || 'No description';
-    const myMembership = team.members.find((m) => m.id === currentUser.id);
-    const role = myMembership ? myMembership.role : 'member';
-    currentTeamRole = role;
-    const roleEl = $('#team-detail-role');
-    roleEl.textContent = role;
-    roleEl.className = `badge badge-${role}`;
-
-    const membersList = $('#team-members-list');
-    membersList.innerHTML = team.members
-      .map(
-        (m) => {
-          const removeBtn = (role === 'admin' && m.id !== currentUser.id)
-            ? `<button class="btn btn-sm btn-danger remove-member-btn" data-user-id="${m.id}">Remove</button> `
-            : '';
-          return `<li><span>${m.username} (${m.email})</span> <span>${removeBtn}<span class="badge badge-${m.role}">${m.role}</span></span></li>`;
-        }
-      )
-      .join('');
-
-    membersList.querySelectorAll('.remove-member-btn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('Remove this member from the team?')) return;
-        try {
-          await api(`/api/teams/${id}/members/${btn.dataset.userId}`, { method: 'DELETE' });
-          selectTeam(id);
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-    });
-
-    if (role === 'admin') show($('#add-member-form'));
-    else hide($('#add-member-form'));
-
-    showPanel('team');
-    loadProjects(id);
-  } catch (err) {
-    console.error('Failed to load team:', err);
-  }
-}
-
-$('#create-team-btn').addEventListener('click', () => {
-  openModal(
-    'Create Team',
-    `<div class="form-group"><label>Name</label><input id="m-team-name" required></div>
-     <div class="form-group"><label>Description</label><textarea id="m-team-desc"></textarea></div>`,
-    async () => {
-      const name = $('#m-team-name').value;
-      if (!name) return;
-      await api('/api/teams', {
-        method: 'POST',
-        body: JSON.stringify({ name, description: $('#m-team-desc').value }),
-      });
-      closeModal();
-      loadTeams();
-    }
-  );
-});
-
-$('#add-member-submit').addEventListener('click', async () => {
-  const email = $('#add-member-email').value;
-  const role = $('#add-member-role').value;
-  if (!email || !selectedTeamId) return;
-  try {
-    await api(`/api/teams/${selectedTeamId}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ email, role }),
-    });
-    $('#add-member-email').value = '';
-    selectTeam(selectedTeamId);
-  } catch (err) {
-    alert(err.message);
-  }
-});
-
-/* ── Projects ── */
-async function loadProjects(teamId) {
-  try {
-    projects = await api(`/api/teams/${teamId}/projects`);
-    renderProjects();
-  } catch (err) {
-    console.error('Failed to load projects:', err);
-  }
-}
-
-function renderProjects() {
-  const ul = $('#project-list');
-  ul.innerHTML = projects
-    .map(
-      (p) =>
-        `<li data-id="${p.id}" class="${p.id === selectedProjectId ? 'active' : ''}">${p.name} <span style="opacity:.5;font-size:11px">(${p.task_count})</span></li>`
-    )
-    .join('');
-
-  ul.querySelectorAll('li').forEach((li) => {
-    li.addEventListener('click', () => selectProject(parseInt(li.dataset.id)));
-  });
-}
-
-async function selectProject(id) {
-  selectedProjectId = id;
-  renderProjects();
-  const proj = projects.find((p) => p.id === id);
-  if (proj) $('#project-title').textContent = proj.name;
-
-  if (currentTeamRole === 'admin') {
-    show($('#edit-project-btn'));
-    show($('#delete-project-btn'));
-  } else {
-    hide($('#edit-project-btn'));
-    hide($('#delete-project-btn'));
-  }
-
-  showPanel('board');
-  loadTasks();
-}
-
-$('#create-project-btn').addEventListener('click', () => {
-  if (!selectedTeamId) return alert('Select a team first');
-  openModal(
-    'Create Project',
-    `<div class="form-group"><label>Name</label><input id="m-proj-name" required></div>
-     <div class="form-group"><label>Description</label><textarea id="m-proj-desc"></textarea></div>`,
-    async () => {
-      const name = $('#m-proj-name').value;
-      if (!name) return;
-      await api(`/api/teams/${selectedTeamId}/projects`, {
-        method: 'POST',
-        body: JSON.stringify({ name, description: $('#m-proj-desc').value }),
-      });
-      closeModal();
-      loadProjects(selectedTeamId);
-    }
-  );
-});
-
-$('#edit-project-btn').addEventListener('click', () => {
-  if (!selectedProjectId) return;
-  const proj = projects.find((p) => p.id === selectedProjectId);
-  if (!proj) return;
-  openModal(
-    'Edit Project',
-    `<div class="form-group"><label>Name</label><input id="m-proj-name" value="${escapeAttr(proj.name)}"></div>
-     <div class="form-group"><label>Description</label><textarea id="m-proj-desc">${escapeHtml(proj.description || '')}</textarea></div>`,
-    async () => {
-      await api(`/api/projects/${selectedProjectId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ name: $('#m-proj-name').value, description: $('#m-proj-desc').value }),
-      });
-      closeModal();
-      loadProjects(selectedTeamId);
-      $('#project-title').textContent = $('#m-proj-name').value;
-    }
-  );
-});
-
-$('#delete-project-btn').addEventListener('click', async () => {
-  if (!selectedProjectId) return;
-  const proj = projects.find((p) => p.id === selectedProjectId);
-  if (!confirm(`Delete project "${proj ? proj.name : ''}" and all its tasks? This cannot be undone.`)) return;
-  try {
-    await api(`/api/projects/${selectedProjectId}`, { method: 'DELETE' });
+    user = null;
+    localStorage.removeItem('taskcloud_token');
+    disconnectWebSocket();
+    selectedTeamId = null;
     selectedProjectId = null;
-    loadProjects(selectedTeamId);
-    showPanel('team');
-  } catch (err) {
-    alert(err.message);
+    showView('auth');
   }
-});
 
-/* ── Tasks ── */
-async function loadTasks() {
-  if (!selectedProjectId) return;
-  try {
-    const tasks = await api(`/api/projects/${selectedProjectId}/tasks`);
-    renderBoard(tasks);
-  } catch (err) {
-    console.error('Failed to load tasks:', err);
+  async function enterApp() {
+    showView('main');
+    $('user-display').textContent = user.username;
+    await loadTeams();
+    connectWebSocket();
   }
-}
 
-function renderBoard(tasks) {
-  const cols = { todo: [], in_progress: [], done: [] };
-  tasks.forEach((t) => {
-    if (cols[t.status]) cols[t.status].push(t);
-  });
+  async function loadTeams() {
+    teams = await api('/teams');
+    renderTeamList();
+  }
 
-  for (const [status, items] of Object.entries(cols)) {
-    const container = $(`#col-${status.replace('_', '-')}`);
-    container.innerHTML = items.map((t) => taskCardHTML(t)).join('');
-    container.querySelectorAll('.task-card').forEach((card) => {
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.btn')) return;
-        openTaskDetail(parseInt(card.dataset.id));
+  function renderTeamList() {
+    const ul = $('team-list');
+    ul.innerHTML = '';
+    teams.forEach((t) => {
+      const li = document.createElement('li');
+      li.textContent = t.name;
+      if (Number(t.id) === Number(selectedTeamId)) li.classList.add('active');
+      li.addEventListener('click', () => selectTeam(t.id));
+      ul.appendChild(li);
+    });
+  }
+
+  async function selectTeam(teamId) {
+    selectedTeamId = teamId;
+    selectedProjectId = null;
+    selectedProjectTeamId = null;
+    projects = [];
+    renderTeamList();
+    renderProjectList();
+    hideAllPanels();
+    const team = teams.find((x) => Number(x.id) === Number(teamId));
+    currentTeamRole = team ? team.my_role : null;
+    try {
+      const detail = await api(`/teams/${teamId}`);
+      $('team-detail-name').textContent = detail.name;
+      $('team-detail-desc').textContent = detail.description || '';
+      $('team-detail-role').textContent = currentTeamRole || '';
+      $('team-detail-role').className = `badge badge-${currentTeamRole === 'admin' ? 'admin' : 'member'}`;
+      const memUl = $('team-members-list');
+      memUl.innerHTML = '';
+      (detail.members || []).forEach((m) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${escapeHtml(m.username)}</span><span class="badge badge-${m.role === 'admin' ? 'admin' : 'member'}">${m.role}</span>`;
+        memUl.appendChild(li);
       });
-    });
-    container.querySelectorAll('[data-action]').forEach((btn) => {
-      btn.addEventListener('click', () => handleTaskAction(btn));
+      const isAdmin = currentTeamRole === 'admin';
+      $('add-member-form').classList.toggle('hidden', !isAdmin);
+      $('team-detail').classList.remove('hidden');
+      projects = await api(`/teams/${teamId}/projects`);
+      renderProjectList();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function renderProjectList() {
+    const ul = $('project-list');
+    ul.innerHTML = '';
+    projects.forEach((p) => {
+      const li = document.createElement('li');
+      li.textContent = p.name;
+      if (Number(p.id) === Number(selectedProjectId)) li.classList.add('active');
+      li.addEventListener('click', () => selectProject(p.id, p.team_id));
+      ul.appendChild(li);
     });
   }
-}
 
-function taskCardHTML(t) {
-  const statusMoves = {
-    todo: [['in_progress', 'Start']],
-    in_progress: [['todo', 'Back'], ['done', 'Done']],
-    done: [['in_progress', 'Reopen']],
-  };
-  const actions = (statusMoves[t.status] || [])
-    .map(([s, label]) => `<button class="btn btn-sm" data-action="move" data-task-id="${t.id}" data-status="${s}">${label}</button>`)
-    .join('');
+  async function selectProject(projectId, teamId) {
+    selectedProjectId = projectId;
+    selectedProjectTeamId = teamId || selectedTeamId;
+    renderProjectList();
+    hideAllPanels();
+    $('task-board').classList.remove('hidden');
+    try {
+      const proj = await api(`/projects/${projectId}`);
+      $('project-title').textContent = proj.name;
+      const isAdmin = proj.team_role === 'admin';
+      $('edit-project-btn').classList.toggle('hidden', !isAdmin);
+      $('delete-project-btn').classList.toggle('hidden', !isAdmin);
+      await loadTasks();
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
-  return `
-    <div class="task-card priority-${t.priority}" data-id="${t.id}">
-      <div class="task-card-title">${escapeHtml(t.title)}</div>
-      <div class="task-card-meta">
-        <span>${t.assignee_name || 'Unassigned'}</span>
-        <span>${t.priority}</span>
-      </div>
-      <div class="task-card-actions">${actions}
-        <button class="btn btn-sm btn-danger" data-action="delete" data-task-id="${t.id}">Del</button>
-      </div>
-    </div>`;
-}
-
-async function handleTaskAction(btn) {
-  const action = btn.dataset.action;
-  const taskId = btn.dataset.taskId;
-
-  if (action === 'move') {
-    await api(`/api/tasks/${taskId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status: btn.dataset.status }),
+  function hideAllPanels() {
+    ['welcome-panel', 'team-detail', 'task-board', 'search-results'].forEach((id) => {
+      $(id).classList.add('hidden');
     });
-    loadTasks();
   }
-  if (action === 'delete') {
-    if (!confirm('Delete this task?')) return;
-    await api(`/api/tasks/${taskId}`, { method: 'DELETE' });
-    loadTasks();
-  }
-}
 
-async function openTaskDetail(taskId) {
-  try {
-    const t = await api(`/api/tasks/${taskId}`);
-    openModal(
-      'Edit Task',
-      `<div class="form-group"><label>Title</label><input id="m-task-title" value="${escapeAttr(t.title)}"></div>
-       <div class="form-group"><label>Description</label><textarea id="m-task-desc">${escapeHtml(t.description || '')}</textarea></div>
-       <div class="form-group"><label>Status</label>
-         <select id="m-task-status">
-           <option value="todo" ${t.status === 'todo' ? 'selected' : ''}>To Do</option>
-           <option value="in_progress" ${t.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
-           <option value="done" ${t.status === 'done' ? 'selected' : ''}>Done</option>
-         </select></div>
-       <div class="form-group"><label>Priority</label>
-         <select id="m-task-priority">
-           <option value="low" ${t.priority === 'low' ? 'selected' : ''}>Low</option>
-           <option value="medium" ${t.priority === 'medium' ? 'selected' : ''}>Medium</option>
-           <option value="high" ${t.priority === 'high' ? 'selected' : ''}>High</option>
-         </select></div>
-       <div class="form-group"><label>Due Date</label>
-         <input type="date" id="m-task-due" value="${t.due_date ? t.due_date.split('T')[0] : ''}"></div>`,
-      async () => {
-        await api(`/api/tasks/${taskId}`, {
+  async function loadTasks() {
+    if (!selectedProjectId) return;
+    tasks = await api(`/projects/${selectedProjectId}/tasks`);
+    renderBoard();
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderBoard() {
+    ['col-todo', 'col-in-progress', 'col-done'].forEach((id) => {
+      $(id).innerHTML = '';
+    });
+    const colMap = { todo: 'col-todo', in_progress: 'col-in-progress', done: 'col-done' };
+    tasks.forEach((task) => {
+      const colId = colMap[task.status] || 'col-todo';
+      const card = document.createElement('div');
+      card.className = `task-card priority-${task.priority || 'medium'}`;
+      card.innerHTML = `
+        <div class="task-card-title">${escapeHtml(task.title)}</div>
+        <div class="task-card-meta">
+          <span>${task.assignee_name || 'Unassigned'}</span>
+          <span>${task.priority || ''}</span>
+        </div>
+        <div class="task-card-actions">
+          <button type="button" class="btn btn-sm btn-outline" data-act="edit">Edit</button>
+          <button type="button" class="btn btn-sm btn-outline" data-act="move-todo">To Do</button>
+          <button type="button" class="btn btn-sm btn-outline" data-act="move-ip">In Progress</button>
+          <button type="button" class="btn btn-sm btn-outline" data-act="move-done">Done</button>
+        </div>`;
+      card.querySelector('[data-act="edit"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTaskModal(task);
+      });
+      card.querySelector('[data-act="move-todo"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveTask(task.id, 'todo');
+      });
+      card.querySelector('[data-act="move-ip"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveTask(task.id, 'in_progress');
+      });
+      card.querySelector('[data-act="move-done"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveTask(task.id, 'done');
+      });
+      $(colId).appendChild(card);
+    });
+  }
+
+  async function moveTask(taskId, status) {
+    try {
+      await api(`/tasks/${taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      });
+      await loadTasks();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  function openModal(html) {
+    $('modal-content').innerHTML = html;
+    $('modal-overlay').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    $('modal-overlay').classList.add('hidden');
+    $('modal-content').innerHTML = '';
+  }
+
+  function openTaskModal(task) {
+    openModal(`
+      <h3>Edit task</h3>
+      <form id="task-edit-form">
+        <div class="form-group"><label>Title</label><input name="title" required></div>
+        <div class="form-group"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="form-group"><label>Status</label>
+          <select name="status">
+            <option value="todo">To Do</option>
+            <option value="in_progress">In Progress</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Priority</label>
+          <select name="priority">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>`);
+    const form = $('task-edit-form');
+    form.querySelector('[name="title"]').value = task.title;
+    form.querySelector('[name="description"]').value = task.description || '';
+    form.querySelector('[name="status"]').value = task.status;
+    form.querySelector('[name="priority"]').value = task.priority || 'medium';
+    $('modal-cancel').addEventListener('click', closeModal);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      try {
+        await api(`/tasks/${task.id}`, {
           method: 'PUT',
           body: JSON.stringify({
-            title: $('#m-task-title').value,
-            description: $('#m-task-desc').value,
-            status: $('#m-task-status').value,
-            priority: $('#m-task-priority').value,
-            due_date: $('#m-task-due').value || null,
+            title: fd.get('title'),
+            description: fd.get('description') || null,
+            status: fd.get('status'),
+            priority: fd.get('priority'),
           }),
         });
         closeModal();
-        loadTasks();
+        await loadTasks();
+      } catch (err) {
+        alert(err.message);
       }
-    );
-  } catch (err) {
-    alert(err.message);
+    });
   }
-}
 
-$('#create-task-btn').addEventListener('click', () => {
-  if (!selectedProjectId) return;
-  openModal(
-    'New Task',
-    `<div class="form-group"><label>Title</label><input id="m-task-title" required></div>
-     <div class="form-group"><label>Description</label><textarea id="m-task-desc"></textarea></div>
-     <div class="form-group"><label>Priority</label>
-       <select id="m-task-priority">
-         <option value="low">Low</option>
-         <option value="medium" selected>Medium</option>
-         <option value="high">High</option>
-       </select></div>
-     <div class="form-group"><label>Due Date</label><input type="date" id="m-task-due"></div>`,
-    async () => {
-      const title = $('#m-task-title').value;
-      if (!title) return;
-      await api(`/api/projects/${selectedProjectId}/tasks`, {
-        method: 'POST',
-        body: JSON.stringify({
-          title,
-          description: $('#m-task-desc').value,
-          priority: $('#m-task-priority').value,
-          due_date: $('#m-task-due').value || null,
-        }),
-      });
-      closeModal();
-      loadTasks();
+  $('modal-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'modal-overlay') closeModal();
+  });
+
+  $('create-team-btn').addEventListener('click', () => {
+    openModal(`
+      <h3>New team</h3>
+      <form id="team-form">
+        <div class="form-group"><label>Name</label><input name="name" required></div>
+        <div class="form-group"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>`);
+    $('modal-cancel').addEventListener('click', closeModal);
+    $('team-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api('/teams', {
+          method: 'POST',
+          body: JSON.stringify({ name: fd.get('name'), description: fd.get('description') || null }),
+        });
+        closeModal();
+        await loadTeams();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  $('create-project-btn').addEventListener('click', () => {
+    if (!selectedTeamId) {
+      alert('Select a team first');
+      return;
     }
-  );
-});
+    openModal(`
+      <h3>New project</h3>
+      <form id="project-form">
+        <div class="form-group"><label>Name</label><input name="name" required></div>
+        <div class="form-group"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>`);
+    $('modal-cancel').addEventListener('click', closeModal);
+    $('project-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api(`/teams/${selectedTeamId}/projects`, {
+          method: 'POST',
+          body: JSON.stringify({ name: fd.get('name'), description: fd.get('description') || null }),
+        });
+        closeModal();
+        await selectTeam(selectedTeamId);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 
-/* ── Search ── */
-$('#search-btn').addEventListener('click', doSearch);
-$('#search-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') doSearch();
-});
+  $('create-task-btn').addEventListener('click', () => {
+    if (!selectedProjectId) return;
+    openModal(`
+      <h3>New task</h3>
+      <form id="task-create-form">
+        <div class="form-group"><label>Title</label><input name="title" required></div>
+        <div class="form-group"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="form-group"><label>Priority</label>
+          <select name="priority">
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>`);
+    $('modal-cancel').addEventListener('click', closeModal);
+    $('task-create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api(`/projects/${selectedProjectId}/tasks`, {
+          method: 'POST',
+          body: JSON.stringify({
+            title: fd.get('title'),
+            description: fd.get('description') || null,
+            priority: fd.get('priority'),
+          }),
+        });
+        closeModal();
+        await loadTasks();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 
-async function doSearch() {
-  const q = $('#search-input').value.trim();
-  if (!q) return;
-  try {
-    const results = await api(`/api/search/tasks?q=${encodeURIComponent(q)}`);
-    const container = $('#search-results-list');
-    if (results.length === 0) {
-      container.innerHTML = '<div class="empty-state"><p>No tasks found.</p></div>';
-    } else {
-      container.innerHTML = results
-        .map(
-          (t) =>
-            `<div class="search-result-item">
-              <h4>${escapeHtml(t.title)}</h4>
-              <p>${escapeHtml(t.description || '')} &mdash; ${t.project_name} / ${t.team_name} &mdash; ${t.status}</p>
-            </div>`
-        )
-        .join('');
-    }
-    showPanel('search');
-  } catch (err) {
-    alert(err.message);
-  }
-}
+  $('edit-project-btn').addEventListener('click', async () => {
+    if (!selectedProjectId) return;
+    const proj = await api(`/projects/${selectedProjectId}`);
+    openModal(`
+      <h3>Edit project</h3>
+      <form id="project-edit-form">
+        <div class="form-group"><label>Name</label><input name="name" required></div>
+        <div class="form-group"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" id="modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>`);
+    const pform = $('project-edit-form');
+    pform.querySelector('[name="name"]').value = proj.name;
+    pform.querySelector('[name="description"]').value = proj.description || '';
+    $('modal-cancel').addEventListener('click', closeModal);
+    pform.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(pform);
+      try {
+        await api(`/projects/${selectedProjectId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ name: fd.get('name'), description: fd.get('description') || null }),
+        });
+        closeModal();
+        $('project-title').textContent = fd.get('name');
+        await selectTeam(selectedTeamId);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 
-$('#close-search').addEventListener('click', () => {
-  showPanel('welcome');
-});
-
-/* ── Modal ── */
-function openModal(title, bodyHTML, onSubmit) {
-  const modal = $('#modal-content');
-  modal.innerHTML = `
-    <h3>${title}</h3>
-    ${bodyHTML}
-    <div class="modal-actions">
-      <button class="btn btn-outline" id="modal-cancel">Cancel</button>
-      <button class="btn btn-primary" id="modal-submit">Save</button>
-    </div>`;
-  show($('#modal-overlay'));
-  $('#modal-cancel').addEventListener('click', closeModal);
-  $('#modal-submit').addEventListener('click', async () => {
+  $('delete-project-btn').addEventListener('click', async () => {
+    if (!selectedProjectId || !confirm('Delete this project and all tasks?')) return;
     try {
-      await onSubmit();
+      await api(`/projects/${selectedProjectId}`, { method: 'DELETE' });
+      selectedProjectId = null;
+      await selectTeam(selectedTeamId);
+      hideAllPanels();
+      $('team-detail').classList.remove('hidden');
     } catch (err) {
       alert(err.message);
     }
   });
-}
 
-function closeModal() {
-  hide($('#modal-overlay'));
-}
+  $('add-member-submit').addEventListener('click', async () => {
+    const email = $('add-member-email').value.trim();
+    const role = $('add-member-role').value;
+    if (!email || !selectedTeamId) return;
+    try {
+      await api(`/teams/${selectedTeamId}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ email, role }),
+      });
+      $('add-member-email').value = '';
+      await selectTeam(selectedTeamId);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
-$('#modal-overlay').addEventListener('click', (e) => {
-  if (e.target === $('#modal-overlay')) closeModal();
-});
+  $('search-btn').addEventListener('click', runSearch);
+  $('search-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSearch();
+  });
 
-/* ── Utilities ── */
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
+  async function runSearch() {
+    const q = $('search-input').value.trim();
+    if (!q) return;
+    try {
+      const results = await api(`/search/tasks?q=${encodeURIComponent(q)}`);
+      hideAllPanels();
+      $('search-results').classList.remove('hidden');
+      const list = $('search-results-list');
+      list.innerHTML = '';
+      results.forEach((t) => {
+        const div = document.createElement('div');
+        div.className = 'search-result-item';
+        div.innerHTML = `<h4>${escapeHtml(t.title)}</h4><p>${escapeHtml(t.team_name)} / ${escapeHtml(t.project_name)}</p>`;
+        div.addEventListener('click', async () => {
+          selectedTeamId = t.team_id || selectedTeamId;
+          await selectProject(t.project_id, t.team_id);
+          $('search-results').classList.add('hidden');
+        });
+        list.appendChild(div);
+      });
+    } catch (err) {
+      alert(err.message);
+    }
+  }
 
-function escapeAttr(s) {
-  return s.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+  $('close-search').addEventListener('click', () => {
+    $('search-results').classList.add('hidden');
+    if (selectedProjectId) $('task-board').classList.remove('hidden');
+    else if (selectedTeamId) $('team-detail').classList.remove('hidden');
+    else $('welcome-panel').classList.remove('hidden');
+  });
 
-/* ── Init ── */
-if (token) {
-  enterApp();
-} else {
-  show($('#auth-view'));
-  hide($('#main-view'));
-}
+  document.querySelectorAll('.auth-tabs .tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.auth-tabs .tab').forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      const name = tab.dataset.tab;
+      $('login-form').classList.toggle('hidden', name !== 'login');
+      $('register-form').classList.toggle('hidden', name !== 'register');
+      hideAuthError();
+    });
+  });
+
+  $('login-form').addEventListener('submit', handleLogin);
+  $('register-form').addEventListener('submit', handleRegister);
+  $('logout-btn').addEventListener('click', logout);
+
+  async function boot() {
+    if (!token) {
+      showView('auth');
+      return;
+    }
+    try {
+      const data = await api('/auth/me');
+      user = data.user;
+      await enterApp();
+    } catch {
+      token = null;
+      localStorage.removeItem('taskcloud_token');
+      showView('auth');
+    }
+  }
+
+  boot();
+})();
