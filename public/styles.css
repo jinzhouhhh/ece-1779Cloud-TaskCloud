@@ -268,6 +268,15 @@ textarea { resize: vertical; min-height: 80px; }
 }
 
 .panel-header h2 { font-size: 20px; }
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .panel-actions { display: flex; gap: 8px; align-items: center; }
 
 .empty-state {
@@ -298,9 +307,51 @@ textarea { resize: vertical; min-height: 80px; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
+}
+
+.member-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.member-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-remove-spacer {
+  display: inline-block;
+  width: 32px;
+  flex-shrink: 0;
+}
+
+.member-remove-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  line-height: 1;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--danger);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.member-remove-btn:hover {
+  background: #fef2f2;
+  border-color: var(--danger);
 }
 
 .inline-form {
@@ -355,13 +406,90 @@ textarea { resize: vertical; min-height: 80px; }
 .task-card.priority-medium { border-left-color: var(--warning); }
 .task-card.priority-low { border-left-color: var(--success); }
 
-.task-card-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.task-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.task-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.task-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  margin: -2px -2px 0 0;
+}
+
+.task-card-edit-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.task-card-edit-btn:hover {
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.task-card-edit-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.task-card-delete-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.task-card-delete-btn:hover {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.task-card-delete-btn:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}
 
 .task-card-meta {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   font-size: 11px;
   color: var(--text-muted);
+  text-transform: capitalize;
 }
 
 .task-card-actions {

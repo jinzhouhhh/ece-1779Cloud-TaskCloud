@@ -9,6 +9,7 @@
   let selectedProjectId = null;
   let selectedProjectTeamId = null;
   let currentTeamRole = null;
+  let currentBoardTeamAdmin = false;
   let tasks = [];
 
   let ws = null;
@@ -206,6 +207,7 @@
     disconnectWebSocket();
     selectedTeamId = null;
     selectedProjectId = null;
+    currentBoardTeamAdmin = false;
     showView('auth');
   }
 
@@ -237,6 +239,7 @@
     selectedTeamId = teamId;
     selectedProjectId = null;
     selectedProjectTeamId = null;
+    currentBoardTeamAdmin = false;
     projects = [];
     renderTeamList();
     renderProjectList();
@@ -251,13 +254,55 @@
       $('team-detail-role').className = `badge badge-${currentTeamRole === 'admin' ? 'admin' : 'member'}`;
       const memUl = $('team-members-list');
       memUl.innerHTML = '';
+      const isAdmin = currentTeamRole === 'admin';
       (detail.members || []).forEach((m) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(m.username)}</span><span class="badge badge-${m.role === 'admin' ? 'admin' : 'member'}">${m.role}</span>`;
+
+        const main = document.createElement('div');
+        main.className = 'member-row-main';
+
+        const canRemove = isAdmin && user && Number(m.id) !== Number(user.id);
+        if (canRemove) {
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'btn btn-sm member-remove-btn';
+          removeBtn.title = `Remove ${m.username}`;
+          removeBtn.setAttribute('aria-label', `Remove ${m.username} from team`);
+          removeBtn.textContent = '\u00d7';
+          removeBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm(`Remove ${m.username} from this team?`)) return;
+            try {
+              await api(`/teams/${selectedTeamId}/members/${m.id}`, { method: 'DELETE' });
+              await loadTeams();
+              await selectTeam(selectedTeamId);
+            } catch (err) {
+              alert(err.message);
+            }
+          });
+          main.appendChild(removeBtn);
+        } else {
+          const spacer = document.createElement('span');
+          spacer.className = 'member-remove-spacer';
+          spacer.setAttribute('aria-hidden', 'true');
+          main.appendChild(spacer);
+        }
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'member-name';
+        nameSpan.textContent = m.username;
+        main.appendChild(nameSpan);
+
+        const badge = document.createElement('span');
+        badge.className = `badge badge-${m.role === 'admin' ? 'admin' : 'member'}`;
+        badge.textContent = m.role;
+
+        li.appendChild(main);
+        li.appendChild(badge);
         memUl.appendChild(li);
       });
-      const isAdmin = currentTeamRole === 'admin';
       $('add-member-form').classList.toggle('hidden', !isAdmin);
+      $('delete-team-btn').classList.toggle('hidden', !isAdmin);
       $('team-detail').classList.remove('hidden');
       projects = await api(`/teams/${teamId}/projects`);
       renderProjectList();
@@ -288,6 +333,7 @@
       const proj = await api(`/projects/${projectId}`);
       $('project-title').textContent = proj.name;
       const isAdmin = proj.team_role === 'admin';
+      currentBoardTeamAdmin = isAdmin;
       $('edit-project-btn').classList.toggle('hidden', !isAdmin);
       $('delete-project-btn').classList.toggle('hidden', !isAdmin);
       await loadTasks();
@@ -319,18 +365,29 @@
       $(id).innerHTML = '';
     });
     const colMap = { todo: 'col-todo', in_progress: 'col-in-progress', done: 'col-done' };
+    const deleteBtnHtml = currentBoardTeamAdmin
+      ? `<button type="button" class="task-card-delete-btn" data-act="delete" aria-label="Delete task" title="Delete task">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </button>`
+      : '';
     tasks.forEach((task) => {
       const colId = colMap[task.status] || 'col-todo';
       const card = document.createElement('div');
       card.className = `task-card priority-${task.priority || 'medium'}`;
       card.innerHTML = `
-        <div class="task-card-title">${escapeHtml(task.title)}</div>
+        <div class="task-card-head">
+          <div class="task-card-title">${escapeHtml(task.title)}</div>
+          <div class="task-card-head-actions">
+            <button type="button" class="task-card-edit-btn" data-act="edit" aria-label="Edit task" title="Edit task">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            ${deleteBtnHtml}
+          </div>
+        </div>
         <div class="task-card-meta">
-          <span>${task.assignee_name || 'Unassigned'}</span>
-          <span>${task.priority || ''}</span>
+          <span>${escapeHtml(task.priority || '')}</span>
         </div>
         <div class="task-card-actions">
-          <button type="button" class="btn btn-sm btn-outline" data-act="edit">Edit</button>
           <button type="button" class="btn btn-sm btn-outline" data-act="move-todo">To Do</button>
           <button type="button" class="btn btn-sm btn-outline" data-act="move-ip">In Progress</button>
           <button type="button" class="btn btn-sm btn-outline" data-act="move-done">Done</button>
@@ -339,6 +396,13 @@
         e.stopPropagation();
         openTaskModal(task);
       });
+      const delBtn = card.querySelector('[data-act="delete"]');
+      if (delBtn) {
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteTask(task);
+        });
+      }
       card.querySelector('[data-act="move-todo"]').addEventListener('click', (e) => {
         e.stopPropagation();
         moveTask(task.id, 'todo');
@@ -361,6 +425,17 @@
         method: 'PUT',
         body: JSON.stringify({ status }),
       });
+      await loadTasks();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function deleteTask(task) {
+    if (!currentBoardTeamAdmin) return;
+    if (!confirm(`Delete task "${task.title}"? This cannot be undone.`)) return;
+    try {
+      await api(`/tasks/${task.id}`, { method: 'DELETE' });
       await loadTasks();
     } catch (err) {
       alert(err.message);
@@ -575,6 +650,35 @@
       await selectTeam(selectedTeamId);
       hideAllPanels();
       $('team-detail').classList.remove('hidden');
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  $('delete-team-btn').addEventListener('click', async () => {
+    if (!selectedTeamId || currentTeamRole !== 'admin') return;
+    const name = $('team-detail-name').textContent || 'this team';
+    if (
+      !confirm(
+        `Delete team "${name}"? All projects and tasks in this team will be permanently removed. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    try {
+      const teamId = selectedTeamId;
+      await api(`/teams/${teamId}`, { method: 'DELETE' });
+      selectedTeamId = null;
+      selectedProjectId = null;
+      selectedProjectTeamId = null;
+      currentTeamRole = null;
+      currentBoardTeamAdmin = false;
+      projects = [];
+      renderProjectList();
+      await loadTeams();
+      hideAllPanels();
+      $('welcome-panel').classList.remove('hidden');
+      $('delete-team-btn').classList.add('hidden');
     } catch (err) {
       alert(err.message);
     }
