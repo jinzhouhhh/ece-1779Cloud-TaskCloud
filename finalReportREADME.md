@@ -4,9 +4,9 @@
 
 | Name | Student Number | Email |
 |------|----------------|-------|
-| TODO | TODO | TODO |
-| TODO | TODO | TODO |
-| TODO | TODO | TODO |
+| Jibran Shah  | 1007902281 | TODO |
+| Zhouhan Jin | 1006146699 | zhouhan.jin@mail.utoronto.ca |
+| Xinyu(Cindy) Wang | 1002621344 | cindycw.wang@mail.utoronto.ca |
 
 ---
 
@@ -67,58 +67,56 @@ Docker Swarm was selected over Kubernetes for its lightweight setup, native Dock
 
 ### 4.1 Core Features
 
-**User Authentication and Authorization**
-Users register with email, username, and password. Passwords are hashed with bcrypt (12 salt rounds) and never stored in plaintext. On login, the server issues a JWT token (7-day expiry) used for all subsequent API requests. The `authenticate` middleware verifies the token and fetches fresh user data from the database on every request, ensuring deleted or modified accounts are caught immediately.
+**Containerization and Local Development**
+The application is packaged as Docker containers so the backend and database run in a consistent environment across developer machines and deployment targets. Docker Compose is used for local development to bring up the Node.js application and PostgreSQL together, with reproducible networking, environment configuration, and startup behavior.
 
-**Role-Based Access Control (RBAC)**
-Each team membership carries a role: `admin` or `member`. RBAC is enforced at the middleware level through `requireTeamAdmin()`, `requireTeamMember()`, and `requireProjectAccess()`. Admins can manage team membership, edit/delete projects, and delete any task. Members can create tasks and update task status but cannot modify team structure.
+**State Management**
+Application state is stored in PostgreSQL 16, which persists users, teams, memberships, projects, and tasks. In production, the database data directory is mounted to a DigitalOcean Volume so task and account data survive container restarts, rolling updates, and redeployments.
 
-**Team and Project Management**
-Users create teams and are automatically assigned the admin role. Admins invite members by email and can remove members or change roles. Projects are organizational units within teams that group related tasks.
+**Deployment Provider**
+The system is deployed on DigitalOcean infrastructure. A DigitalOcean Droplet hosts the Docker Swarm cluster, while a separate block storage volume is attached for durable PostgreSQL storage. This setup provides a simple but realistic cloud environment with direct control over compute, storage, and deployment behavior.
 
-**Kanban Task Board**
-Tasks are displayed in a three-column board: **To Do**, **In Progress**, and **Done**. Users can create tasks with title, description, priority (low/medium/high), and due date. Tasks are moved between columns using action buttons. Clicking a task card opens an edit modal for full modification.
+**Orchestration Approach**
+Docker Swarm is used to orchestrate the deployed services. The production stack runs two application replicas behind Swarm's routing mesh, supports rolling updates with `start-first`, uses an overlay network for internal communication, and applies placement constraints so PostgreSQL remains on the manager node where the persistent volume is mounted.
 
-**Full-Text Search**
-Task search uses PostgreSQL's built-in `tsvector` and `plainto_tsquery` with a GIN index on the `title` and `description` columns. This supports stemmed English-language search (e.g., searching "docker" matches "dockerized") and runs efficiently even with large datasets. Results are scoped to teams the user belongs to.
+**Monitoring and Observability**
+Monitoring is provided through the DigitalOcean Monitoring Agent and platform dashboards. CPU, memory, and disk usage are tracked for the deployed host, enabling the team to verify system health, observe resource trends during testing and deployment, and configure alerts for abnormal conditions.
 
 ### 4.2 Advanced Features
 
-**Real-Time Collaboration (WebSocket)**
-When a task is created, updated, or deleted, the server broadcasts a JSON message to all WebSocket clients subscribed to the same team. The WebSocket layer uses a `Map<teamId, Set<WebSocket>>` data structure for room-based pub/sub. Authentication is performed via JWT passed as a query parameter. A **ping/pong heartbeat** (25-second interval) detects and terminates stale connections, with the client automatically reconnecting within seconds.
+**Real-time functionality**
+When a task is created, updated, or deleted, the server broadcasts a JSON message to WebSocket clients associated with the same team. The WebSocket layer maintains in-memory team rooms using a `Map<teamId, Set<WebSocket>>`, authenticates each connection with a JWT passed in the query string, and performs a server-side **ping/pong heartbeat every 30 seconds** to terminate stale connections. On the frontend, the browser client automatically reconnects with exponential backoff and refreshes the active board when relevant task events arrive. In production, Redis pub/sub is also supported so task events can fan out across multiple app replicas.
 
-**CI/CD Pipeline (GitHub Actions)**
+**CI/CD pipeline**
 The pipeline has three stages:
-1. **Test** — On every push/PR: spins up a PostgreSQL service container, initializes the schema, runs Jest + Supertest integration tests.
-2. **Build & Push** — On merge to `main`: builds the Docker image and pushes it to DigitalOcean Container Registry with both SHA and `latest` tags.
-3. **Deploy** — On merge to `main`: SSHs into the Swarm manager node and performs a rolling stack update.
+1. **Test** - On pull requests to `main` and pushes to `main`, GitHub Actions starts a PostgreSQL service container, initializes the schema, and runs the Jest test suite.
+2. **Build & Push** - On pushes to `main`, the workflow builds the Docker image and pushes both the commit SHA tag and the `latest` tag to DigitalOcean Container Registry.
+3. **Deploy** - On pushes to `main`, the workflow copies `docker-stack.yml` to the droplet over SCP, then SSHs into the Swarm manager and runs `docker stack deploy` to update the running stack.
 
-Deployment stages are gated by a `DEPLOY_ENABLED` repository variable, allowing the test stage to run independently without cloud credentials.
 
-**Backup and Recovery**
-A shell script (`scripts/backup.sh`) performs `pg_dump` from the running PostgreSQL container, compresses the output with gzip, and stores it locally with a 7-day retention policy. Optional upload to DigitalOcean Spaces is supported. A companion `restore.sh` script documents the recovery procedure. In production, the backup runs nightly via cron.
+**Backup and recovery**
+A shell script (`scripts/backup.sh`) performs `pg_dump` from the running PostgreSQL container, compresses the output with gzip, and stores it in a backup directory with a 7-day retention policy. The script is designed to run from cron for nightly backups and can optionally upload backup files to DigitalOcean Spaces when `s3cmd` is configured. A companion `restore.sh` script restores a selected `.sql.gz` backup by piping it back into PostgreSQL.
 
-**Security Enhancements**
-- Passwords hashed with bcrypt (12 rounds, ~250ms per hash to resist brute-force)
-- JWT tokens with configurable expiry
-- Parameterized SQL queries throughout (preventing SQL injection)
-- Helmet.js middleware for HTTP security headers
-- Docker Secrets for credential management in production (no passwords in environment variables)
-- RBAC enforced on all 15+ API endpoints
+**Security enhancements**
+- Passwords are hashed with bcrypt using 12 salt rounds before storage
+- JWT-based authentication is enforced on protected API routes and WebSocket connections
+- RBAC is implemented with middleware such as `requireTeamAdmin()`, `requireTeamMember()`, and `requireProjectAccess()`
+- SQL statements use parameterized queries throughout the Express routes
+- Helmet.js adds HTTP security headers to the Express app
+- Production deployment supports Docker Secrets via `*_FILE` environment variables for the database password and JWT signing secret
 
 ### 4.3 Requirement Fulfillment
 
-| Requirement | Implementation |
-|-------------|---------------|
-| Containerization | Dockerfile (Node.js 20 Alpine) + Docker Compose for local dev |
-| Persistent Storage | PostgreSQL data directory bind-mounted to a DigitalOcean Volume (`/mnt/taskcloud_data/pgdata`) |
-| Cloud Deployment | DigitalOcean Droplet running Docker Swarm |
-| Orchestration | Docker Swarm with 2 app replicas, rolling updates, overlay networking |
-| Monitoring | DigitalOcean Monitoring Agent with CPU/memory/disk alerts |
-| Advanced Feature 1 | Real-time WebSocket with heartbeat |
-| Advanced Feature 2 | CI/CD with GitHub Actions |
-| Advanced Feature 3 | Automated PostgreSQL backups |
-| Advanced Feature 4 | JWT authentication + RBAC |
+The main infrastructure features described in Sections 4.1 and 4.2 fulfill the course project requirements as follows:
+
+- **Containerization and Local Development:** The application is packaged with Docker, and Docker Compose provides a reproducible multi-container local environment for the Node.js backend and PostgreSQL database. This satisfies the required containerization component and directly supports Objective 1 on reproducible deployment.
+- **State Management:** All persistent application data, including users, teams, memberships, projects, and tasks, is stored in PostgreSQL. In production, the PostgreSQL data directory is bind-mounted to `/mnt/taskcloud_data/pgdata` on a DigitalOcean Volume, so state survives container restarts, rolling updates, and redeployments. This satisfies the required PostgreSQL plus persistent storage requirement and supports Objective 2.
+- **Deployment Provider:** The system is deployed on DigitalOcean infrastructure, using a Droplet for compute and a DigitalOcean Volume for durable block storage. This satisfies the required deployment-provider component while giving the project a realistic cloud environment for service hosting, storage, and monitoring.
+- **Orchestration Approach:** Docker Swarm is used as the orchestration platform. The deployed stack includes two application replicas, Swarm routing-mesh load balancing, overlay networking, restart policies, and rolling updates. This satisfies the orchestration requirement and supports Objective 3 on service replication, load balancing, and managed updates.
+- **Monitoring and Observability:** DigitalOcean Monitoring is used to track CPU, memory, and disk metrics for the deployed host and to support dashboards and alerts for system health. This satisfies the monitoring requirement and supports Objective 7 on infrastructure visibility and reliability analysis.
+- **Advanced Features:** The project exceeds the minimum requirement of two advanced features by implementing four: real-time functionality through WebSockets, security enhancements through JWT, bcrypt, RBAC, Helmet, and Docker Secrets support, a CI/CD pipeline through GitHub Actions, and backup/recovery through automated PostgreSQL backup and restore scripts. These features collectively support Objectives 4, 5, and 6 by enabling live collaboration, secure multi-user access, automated deployment, and operational recovery.
+
+Together, these features support the application's user-facing functionality, including team management, project organization, task tracking, search, and real-time collaborative updates, while also demonstrating the cloud-native engineering goals of the project: reproducible deployment, durable state management, orchestrated services, security, automation, and observability.
 
 ---
 
