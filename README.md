@@ -12,11 +12,11 @@ A **stateful cloud-native** web application for teams to manage tasks with real-
 └──────────────────────────────────────────┬──────────────────────────────────────┘
                                            │ SSH deploy
                                            ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  DigitalOcean Droplet (Ubuntu + Docker)                        Monitoring Agent │
-│  ┌────────────────────────────────────────────────────────────────────────────┐ │
-│  │                         Docker Swarm Cluster                               │ │
-│  │                                                                            │ │
+┌────────────────────────────────────────────────────────────────────────────────┐
+│  DigitalOcean Droplet (Ubuntu + Docker)                       Monitoring Agent │
+│  ┌───────────────────────────────────────────────────────────────────────────┐ │
+│  │                         Docker Swarm Cluster                              │ │
+│  │                                                                           │ │
 │  │  ┌──────────────────── Overlay Network (app-net) ───────────────────────┐ │ │
 │  │  │                                                                      │ │ │
 │  │  │  ┌─────────────────────┐     ┌─────────────────────┐                 │ │ │
@@ -26,9 +26,9 @@ A **stateful cloud-native** web application for teams to manage tasks with real-
 │  │  │  │  WebSocket   /ws    │     │  WebSocket   /ws    │  via Swarm      │ │ │
 │  │  │  │  Static UI   /      │     │  Static UI   /      │  Routing Mesh   │ │ │
 │  │  │  │                     │     │                     │                 │ │ │
-│  │  │  │  ┌───────────────┐  │     │  ┌───────────────┐  │                 │ │ │
-│  │  │  │  │  Middleware   │  │     │  │  Middleware   │  │                 │ │ │
-│  │  │  │  │  ├─ Helmet    │  │     │  │  ├─ Helmet    │  │                 │ │ │
+│  │  │  │  ┌───────────────┐  │     │  ┌───────────────┐  │  Live Broadcast │ │ │
+│  │  │  │  │  Middleware   │  │     │  │  Middleware   │  │  using          │ │ │
+│  │  │  │  │  ├─ Helmet    │  │     │  │  ├─ Helmet    │  │  Redis pub/sub  │ │ │
 │  │  │  │  │  ├─ JWT Auth  │  │     │  │  ├─ JWT Auth  │  │                 │ │ │
 │  │  │  │  │  └─ RBAC      │  │     │  │  └─ RBAC      │  │                 │ │ │
 │  │  │  │  └───────────────┘  │     │  └───────────────┘  │                 │ │ │
