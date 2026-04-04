@@ -1,4 +1,4 @@
-# TaskCloud — Final Report
+﻿# TaskCloud â€” Final Report
 
 ## Team Information
 
@@ -9,10 +9,12 @@
 | Xinyu(Cindy) Wang | 1002621344 | cindycw.wang@mail.utoronto.ca |
 
 ---
+## Video Demo
+https://utoronto-my.sharepoint.com/:v:/g/personal/zhouhan_jin_mail_utoronto_ca/IQDZWM2SWRq3Sa2fWNPkmurKAWQOnNGt8zIoRIyxAq78LCs?nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJPbmVEcml2ZUZvckJ1c2luZXNzIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXciLCJyZWZlcnJhbFZpZXciOiJNeUZpbGVzTGlua0NvcHkifX0&e=1TXQgd
 
 ## 1. Motivation
 
-Collaborative projects require team members to coordinate tasks, track progress, and maintain a shared project state. In many small-team environments — such as student project groups or short-term development teams — coordination is often managed through informal tools like shared documents or messaging platforms. These approaches lack structured task management, real-time synchronization, and reliable data persistence, which can lead to inconsistent information and potential data loss when systems restart or scale.
+Collaborative projects require team members to coordinate tasks, track progress, and maintain a shared project state. In many small-team environments â€” such as student project groups or short-term development teams â€” coordination is often managed through informal tools like shared documents or messaging platforms. These approaches lack structured task management, real-time synchronization, and reliable data persistence, which can lead to inconsistent information and potential data loss when systems restart or scale.
 
 We chose this project because it addresses a practical problem faced by small collaborative teams, including student groups and small development teams, while also matching the technical focus of the course. These teams need lightweight coordination tools with shared visibility, concurrent updates, and a reliable source of truth for project state.
 
@@ -50,7 +52,7 @@ The application uses a Node.js/Express backend that serves a lightweight browser
 | Orchestration | **Docker Swarm** | Production replicas, networking, load balancing, and rolling updates |
 | Cloud platform | **DigitalOcean** | Droplet hosting, Volumes, Container Registry, and Monitoring |
 | Testing | Jest + Supertest | Automated API and integration tests |
-| CI/CD | GitHub Actions | Automated test → build → push → deploy pipeline |
+| CI/CD | GitHub Actions | Automated test â†’ build â†’ push â†’ deploy pipeline |
 | Monitoring | DigitalOcean Monitoring | CPU, memory, disk metrics, dashboards, and alerts |
 | Backup and recovery | `pg_dump` + cron + `restore.sh` | Scheduled backups and documented restore process |
 | Security tools | Helmet.js + Docker Secrets | HTTP security headers and production secret management |
@@ -308,41 +310,7 @@ The application is deployed on a DigitalOcean Droplet running Docker Swarm. Post
 ## 8. System Architecture
 
 ```
-┌─────────────────────── GitHub Actions CI/CD ────────────────────────┐
-│  Push to main → Test (Jest) → Build Image → Push to Registry → SSH │
-└────────────────────────────────┬────────────────────────────────────┘
-                                 │ deploy
-┌────────────────────────────────▼────────────────────────────────────┐
-│  DigitalOcean Droplet                                               │
-│  ┌────────────────── Docker Swarm ────────────────────┐             │
-│  │                                                    │             │
-│  │   ┌──────────────┐       ┌──────────────┐          │             │
-│  │   │ App Replica 1│       │ App Replica 2│          │             │
-│  │   │  Express API │◄─LB──►│  Express API │          │             │
-│  │   │  WebSocket   │       │  WebSocket   │          │             │
-│  │   │  JWT + RBAC  │       │  JWT + RBAC  │          │             │
-│  │   └──────┬───────┘       └──────┬───────┘          │             │
-│  │          └──────────┬───────────┘                   │             │
-│  │                     ▼                               │             │
-│  │          ┌──────────────────┐    Docker Secrets     │             │
-│  │          │  PostgreSQL 16   │◄── (db_pass, jwt)     │             │
-│  │          └────────┬─────────┘                       │             │
-│  └───────────────────┼────────────────────────────────┘             │
-│                      ▼                                              │
-│           ┌────────────────────┐  ┌─────────────────┐               │
-│           │ DO Volume (10 GiB) │  │ DO Monitoring    │               │
-│           │ Persistent Storage │  │ CPU/Mem/Disk     │               │
-│           └────────────────────┘  └─────────────────┘               │
-│                                   ┌─────────────────┐               │
-│                                   │ Cron: pg_dump    │               │
-│                                   │ Nightly Backups  │               │
-│                                   └─────────────────┘               │
-└─────────────────────────────────────────────────────────────────────┘
-        ▲ HTTP :80              ▲ WebSocket /ws
-        │                       │
-   ┌────┴───────────────────────┴─────┐
-   │  Browser Clients (Real-time)     │
-   └──────────────────────────────────┘
+
 ```
 
 ---
@@ -385,14 +353,17 @@ AI initially generated WebSocket code **without a heartbeat mechanism** and with
 
 ## 11. Lessons Learned and Concluding Remarks
 
-**Stateful services are the hard part of cloud-native design.** Containerizing a stateless Node.js API is straightforward, but managing PostgreSQL in a Swarm cluster required careful thought about volume mounts, placement constraints, and backup strategies. The distinction between managed storage (which the course rightly excludes) and self-managed persistent volumes gave us direct insight into why platforms like Kubernetes invest so heavily in StatefulSets and PersistentVolumeClaims.
+This project gave us practical experience building and operating a complete cloud-native application rather than only implementing application logic. The most important lessons we learned were:
 
-**Real-time systems need explicit liveness detection.** Our initial WebSocket implementation worked during active use but silently failed during idle periods. Adding a ping/pong heartbeat was a small code change but represented a fundamental shift in thinking: a connection that *appears* open is not necessarily *functional*. This lesson applies broadly to any distributed system with long-lived connections.
+- **Stateful services require careful infrastructure design.** Managing PostgreSQL with persistent storage, placement constraints, and backup procedures was more challenging than containerizing the stateless application layer.
 
-**CI/CD transforms deployment from a risky event into a routine operation.** Before the GitHub Actions pipeline, deploying required SSH access, manual Docker builds, and careful coordination. After implementing CI/CD, deployment became a side effect of merging to `main`. The psychological shift from "deployment is scary" to "deployment is boring" was one of the most valuable outcomes of the project.
+- **Real-time features need reliability mechanisms.** Our WebSocket layer only became dependable after we added heartbeat handling and reconnection logic, which showed that long-lived connections require explicit liveness management.
 
-**RBAC complexity grows faster than expected.** With just two roles (admin and member), we still needed five different middleware functions and per-route access checks. Each new entity (teams, projects, tasks) introduced its own access patterns. This experience clarified why real-world systems use dedicated authorization frameworks rather than ad-hoc middleware chains.
+- **Automation improves deployment quality.** Setting up CI/CD and backup scripts reduced manual deployment risk and made testing, deployment, and recovery much more repeatable.
 
-**Docker Swarm is underrated for small-scale deployments.** While Kubernetes dominates industry discussion, Docker Swarm provided everything we needed — service replication, load balancing, rolling updates, secrets management, and overlay networking — with significantly less configuration overhead. For a team of three deploying to a single node, Swarm was the pragmatic choice.
+- **Security and authorization add significant application complexity.** Even with only two roles, enforcing JWT authentication and RBAC across teams, projects, and tasks required careful route and middleware design.
 
-In summary, this project provided hands-on experience with the full lifecycle of a cloud-native application: from local Docker Compose development through CI/CD automation to production deployment on DigitalOcean with Docker Swarm orchestration. The challenges we encountered — persistent storage management, WebSocket reliability, and RBAC design — reflect real-world concerns that the course curriculum prepared us to address.
+- **Docker Swarm was a practical orchestration choice for this project.** It provided replication, rolling updates, networking, secrets management, and load balancing with less overhead than a Kubernetes-based deployment would have required for our scope.
+
+Overall, the project helped us connect course concepts to a real system that includes deployment, persistence, real-time communication, security, automation, and monitoring. It also showed us that building reliable cloud applications depends not only on writing features, but also on designing the surrounding infrastructure and operational workflows carefully.
+
