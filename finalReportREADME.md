@@ -37,30 +37,35 @@ The objective of this project was to design, implement, and deploy a cloud-nativ
 
 ## 3. Technical Stack
 
+The application uses a Node.js/Express backend that serves a lightweight browser frontend written in HTML, CSS, and vanilla JavaScript. PostgreSQL is used for persistent relational storage and full-text task search. Real-time updates are delivered through WebSockets, with Redis pub/sub used to support event fan-out across multiple app replicas. Docker and Docker Compose support packaging and local development, while Docker Swarm is the chosen orchestration approach for production deployment on DigitalOcean. Additional supporting tools include GitHub Actions for CI/CD, Jest and Supertest for automated testing, Helmet for HTTP hardening, and `pg_dump` plus cron for backup and recovery.
+
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| Backend | Node.js 20 + Express | REST API server and static file serving |
-| Database | PostgreSQL 16 | Relational data persistence with full-text search |
-| Real-time | WebSocket (`ws` library) | Server-to-client push updates with ping/pong heartbeat |
-| Authentication | JWT + bcrypt (12 salt rounds) | Stateless token auth with secure password hashing |
-| Containerization | Docker + Docker Compose | Application packaging and local multi-container dev |
-| Orchestration | **Docker Swarm** | Production service replication, load balancing, rolling updates |
-| Cloud Provider | **DigitalOcean** | Droplets (compute), Volumes (persistent storage), Monitoring |
+| Frontend | HTML, CSS, vanilla JavaScript | Browser UI and WebSocket client |
+| Backend | Node.js 20 + Express | REST API, static file serving, and application logic |
+| Database | PostgreSQL 16 | Relational persistence and PostgreSQL full-text search |
+| Real-time messaging | `ws` + Redis | WebSocket task updates and cross-replica message fan-out |
+| Authentication and authorization | JWT + bcrypt + RBAC middleware | User authentication and role-based access control |
+| Containerization | Docker + Docker Compose | Image packaging and local multi-container development |
+| Orchestration | **Docker Swarm** | Production replicas, networking, load balancing, and rolling updates |
+| Cloud platform | **DigitalOcean** | Droplet hosting, Volumes, Container Registry, and Monitoring |
+| Testing | Jest + Supertest | Automated API and integration tests |
 | CI/CD | GitHub Actions | Automated test → build → push → deploy pipeline |
-| Monitoring | DigitalOcean Monitoring Agent | CPU, memory, disk metrics and alerting |
-| Backup | `pg_dump` + cron | Nightly automated database backups with retention policy |
-| Security Headers | Helmet.js | HTTP security headers (XSS, clickjacking, MIME sniffing) |
+| Monitoring | DigitalOcean Monitoring | CPU, memory, disk metrics, dashboards, and alerts |
+| Backup and recovery | `pg_dump` + cron + `restore.sh` | Scheduled backups and documented restore process |
+| Security tools | Helmet.js + Docker Secrets | HTTP security headers and production secret management |
 
-### Orchestration: Docker Swarm
+### Orchestration Approach: Docker Swarm
 
-Docker Swarm was selected over Kubernetes for its lightweight setup, native Docker integration, and suitability for small-to-medium deployments within the project timeline. Our Swarm configuration includes:
+Docker Swarm was selected over Kubernetes because it integrates directly with our Docker-based workflow and fits the scale and timeline of this project. In production, the Swarm stack manages:
 
-- **2 app replicas** with Swarm's built-in routing mesh for load balancing
-- **Rolling updates** (`order: start-first`) for zero-downtime deployments
-- **Resource limits** (0.5 CPU, 512MB memory per service) to prevent resource exhaustion
-- **Overlay network** for secure inter-service communication
-- **Docker Secrets** for encrypted credential management (database password, JWT secret)
-- **Placement constraints** to pin the database to the manager node (where the persistent volume is mounted)
+- **2 app replicas** behind Swarm's routing mesh for load balancing
+- **Rolling updates** using `order: start-first`
+- **Restart policies** and application health checks for service recovery
+- **Overlay networking** for communication between the app, database, and Redis services
+- **Docker Secrets** for production credential management (`db_password` and `jwt_secret`)
+- **Placement constraints** to keep PostgreSQL on the manager node where the persistent volume is mounted
+- **Redis-assisted WebSocket fan-out** so task events can be delivered across multiple replicas
 
 ---
 
