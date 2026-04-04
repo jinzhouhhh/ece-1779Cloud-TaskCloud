@@ -97,6 +97,6 @@ instead of:
 TAG=latest DOCKER_REGISTRY=${{ env.REGISTRY }} \
 ```
  
-### What Your Team Did With It
+### What Our Team Did With It
  
 I made this change and committed it to the Github, and after passing 3/3 tests the deployment happened successfully.
