@@ -135,50 +135,47 @@ Together, these features support the application's user-facing functionality, in
 3. You are automatically logged in and taken to the main dashboard.
 4. To log out, click **Logout** in the top-right corner.
 
-<!-- Screenshot: Auth page -->
-
 ### 5.2 Team Management
 
 1. Click **+ New** next to "Teams" in the left sidebar.
-2. Enter a team name and description, then click **Save**.
+2. Enter a team name and description, then click **Create**.
 3. You are automatically assigned as the team **Admin**.
 4. Click the team name in the sidebar to view team details and members.
-5. To add a member: enter their registered email in the "Add member" form and click **Add**.
-6. To remove a member: click the red **Remove** button next to their name.
-
-<!-- Screenshot: Team detail with members -->
+5. To add a member, enter their registered email, choose a role (`Member` or `Admin`), then click **Add**.
+6. To remove a member, click the **remove icon** beside their name. Team admins cannot remove themselves through the UI.
+7. Team admins also see a **Delete Team** button in the team detail view.
 
 ### 5.3 Project Management
 
 1. Select a team from the sidebar.
 2. Click **+ New** next to "Projects" to create a project.
-3. Click a project name to open the Kanban task board.
-4. Admins see **Edit Project** and **Delete Project** buttons in the board header.
-
-<!-- Screenshot: Project list in sidebar -->
+3. In the project creation modal, enter a name and description, then click **Create**.
+4. Click a project name to open the Kanban task board.
+5. Team admins see **Edit Project** and **Delete Project** buttons in the board header.
 
 ### 5.4 Task Board
 
-1. Click **+ New Task** to create a task with title, description, priority, and due date.
-2. Use the **Start**, **Done**, **Back**, and **Reopen** buttons to move tasks between columns.
-3. Click a task card to open the edit modal for full modification.
-4. Click **Del** to delete a task (admins can delete any task; members can only delete their own).
-5. Priority is indicated by a colored left border: red (high), yellow (medium), green (low).
-
-<!-- Screenshot: Kanban board with tasks in all three columns -->
+1. Open a project, then click **+ New Task**.
+2. Enter a title, description, and priority, then click **Create**.
+3. Use the **To Do**, **In Progress**, and **Done** buttons on each task card to change its status.
+4. Click the **edit** icon on a task card to open the edit modal, where you can update the title, description, status, and priority.
+5. Team admins see a **delete** icon on each task card and can remove tasks from the board.
+6. Priority is indicated by a colored left border: red (high), yellow (medium), green (low).
 
 ### 5.5 Real-Time Collaboration
 
 1. Open the application in two browser tabs (or two different browsers).
-2. Log in to the same team and navigate to the same project.
-3. Create or move a task in one tab — it appears instantly in the other.
-4. The green dot in the top-right corner indicates an active WebSocket connection.
+2. Log in to accounts that belong to the same team and open the same project.
+3. Create, edit, or move a task in one tab; the board refreshes automatically in the other tab.
+4. The status dot in the top-right corner shows the WebSocket state: green for connected, yellow for reconnecting, and red/gray for disconnected.
 
 ### 5.6 Search
 
 1. Type a keyword in the search bar at the top of the page.
 2. Press **Enter** or click **Search**.
-3. Results show matching tasks across all your teams and projects, with project and team names.
+3. Results show matching tasks across all your teams and projects, together with the project and team names.
+4. Click a search result to open the related project board.
+5. Click **Close** to leave the search-results view.
 
 ---
 
