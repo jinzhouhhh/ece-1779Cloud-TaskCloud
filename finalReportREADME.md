@@ -184,75 +184,116 @@ Together, these features support the application's user-facing functionality, in
 ### Prerequisites
 
 - **Docker Desktop** (includes Docker Compose)
-- **Node.js 20+** and **npm** (only if running without Docker)
+- **Node.js 20+** and **npm** (only needed for native app development)
 - **Git**
 
-### Quick Start (Docker — Recommended)
+### Option 1: Docker Compose Local Setup
 
 ```bash
 git clone <repo-url>
-cd taskCloudApp
+cd ece-1779Cloud-TaskCloud
 
-# Start the application and database
+# Start the app, PostgreSQL, and Redis
 docker compose up --build -d
 
 # The app is available at http://localhost:3000
 # PostgreSQL is available at localhost:5433
+# Redis is available at localhost:6379
 ```
 
-The database schema initializes automatically on first startup via `CREATE TABLE IF NOT EXISTS` statements.
+When the application starts, it automatically initializes the database schema from `src/config/schema.sql`.
 
 ```bash
 # View logs
 docker compose logs -f app
 
-# Stop
+# Stop services but keep local database data
 docker compose down
 
-# Stop and delete all data
+# Stop services and delete the local PostgreSQL volume
 docker compose down -v
 ```
 
-### Native Development (with hot-reload)
+### Option 2: Native App Development
 
 ```bash
-# Start only the database container
-docker compose up -d db
+# Start supporting services
+docker compose up -d db redis
 
 # Create .env file
 cp .env.example .env
-# Edit .env: set DB_HOST=localhost, DB_PORT=5433
+```
 
+For native development, update `.env` so the Node.js process connects to the Dockerized services from your host machine:
+
+```env
+DB_HOST=localhost
+DB_PORT=5433
+DB_NAME=taskcloud
+DB_USER=taskcloud
+DB_PASSWORD=taskcloud_dev
+JWT_SECRET=dev-jwt-secret-change-in-production
+# Optional for native development:
+REDIS_URL=redis://localhost:6379
+```
+
+`REDIS_URL` is optional when running a single local app instance, but enabling it makes local development closer to the production configuration.
+
+```bash
 # Install dependencies
 npm install
 
-# Start with hot-reload (nodemon)
+# Start the app with hot reload
 npm run dev
 ```
 
-### Running Tests
+### Database and Storage
+
+- Local development uses the PostgreSQL service defined in `docker-compose.yml`.
+- PostgreSQL data is stored in the named Docker volume `pgdata`, so local state survives container restarts and `docker compose down`.
+- Running `docker compose down -v` removes that volume and resets the local database state.
+- In production, PostgreSQL is stored on a DigitalOcean Volume bind-mounted at `/mnt/taskcloud_data/pgdata`.
+
+### Running Tests Locally
+
+Use a separate test database so test data does not mix with your main local development data.
 
 ```bash
-# With the database running (localhost:5433):
-DB_HOST=localhost DB_PORT=5433 DB_NAME=taskcloud DB_USER=taskcloud \
+# Ensure PostgreSQL is running
+docker compose up -d db
+
+# Create the test database (only needed once)
+docker compose exec db createdb -U taskcloud taskcloud_test
+
+# Initialize the schema in the test database
+DB_HOST=localhost DB_PORT=5433 DB_NAME=taskcloud_test DB_USER=taskcloud \
   DB_PASSWORD=taskcloud_dev JWT_SECRET=test-secret NODE_ENV=test \
-  npx jest --forceExit
+  npm run db:init
+
+# Run the test suite
+DB_HOST=localhost DB_PORT=5433 DB_NAME=taskcloud_test DB_USER=taskcloud \
+  DB_PASSWORD=taskcloud_dev JWT_SECRET=test-secret NODE_ENV=test \
+  npm test
 ```
 
-Tests use **Supertest** to send HTTP requests directly to the Express app in-process, without starting a real server. The CI pipeline runs these tests against a PostgreSQL service container on every push.
+Tests use **Supertest** to send HTTP requests directly to the Express app in-process, without starting a separate HTTP server. The CI pipeline uses the same pattern with a PostgreSQL service container.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
+| `NODE_ENV` | `development` | Runtime environment |
 | `DB_HOST` | `db` | PostgreSQL hostname (`db` in Docker, `localhost` native) |
 | `DB_PORT` | `5432` | PostgreSQL port (`5433` when mapped via Docker Compose) |
 | `DB_NAME` | `taskcloud` | Database name |
 | `DB_USER` | `taskcloud` | Database user |
-| `DB_PASSWORD` | — | Database password |
-| `JWT_SECRET` | — | Secret key for JWT signing |
+| `DB_PASSWORD` | `taskcloud_dev` in local Compose | Database password |
+| `JWT_SECRET` | set in Compose / `.env` | Secret key for JWT signing |
 | `JWT_EXPIRES_IN` | `7d` | Token expiry duration |
+| `REDIS_URL` | unset | Optional Redis connection string for WebSocket pub/sub |
+
+For the Swarm deployment, secrets can also be supplied through `DB_PASSWORD_FILE` and `JWT_SECRET_FILE`, but those are production-only and are not required for local development.
 
 ---
 
