@@ -4,7 +4,7 @@
 
 | Name | Student Number | Email |
 |------|----------------|-------|
-| Jibran Shah  | 1007902281 | TODO |
+| Jibran Shah  | 1007902281 | jibraniqbal.shah@mail.utoronto.ca |
 | Zhouhan Jin | 1006146699 | zhouhan.jin@mail.utoronto.ca |
 | Xinyu(Cindy) Wang | 1002621344 | cindycw.wang@mail.utoronto.ca |
 
@@ -14,23 +14,24 @@
 
 Collaborative projects require team members to coordinate tasks, track progress, and maintain a shared project state. In many small-team environments — such as student project groups or short-term development teams — coordination is often managed through informal tools like shared documents or messaging platforms. These approaches lack structured task management, real-time synchronization, and reliable data persistence, which can lead to inconsistent information and potential data loss when systems restart or scale.
 
-From a cloud computing perspective, maintaining a consistent shared state across multiple users highlights key challenges including persistent storage, distributed service deployment, and system reliability. Existing tools like ClickUp and Monday.com are managed services that hide infrastructure details entirely, providing limited visibility into how persistence, orchestration, and monitoring are implemented at the system level.
+We chose this project because it addresses a practical problem faced by small collaborative teams, including student groups and small development teams, while also matching the technical focus of the course. These teams need lightweight coordination tools with shared visibility, concurrent updates, and a reliable source of truth for project state.
 
-Our project addresses these challenges by designing a **self-managed, cloud-native collaborative task management platform** that enables teams to create, assign, and update tasks while ensuring durable storage and synchronized updates. Building the system from the infrastructure layer up — rather than relying on opaque managed services — allows us to directly explore and implement core cloud computing concepts taught in the course.
+The project is significant because it combines a useful collaborative application with core cloud computing concerns such as persistent storage, containerized deployment, orchestration, monitoring, and secure multi-user access. This made it a strong way for our team to apply course concepts in one end-to-end system.
+
+To address this problem, we built a **self-managed, cloud-native collaborative task management platform** that allows teams to create, assign, and update tasks while maintaining durable storage and synchronized updates. Instead of relying on managed tools that hide the infrastructure, we implemented the platform ourselves to better understand how these capabilities are designed and operated.
 
 ---
 
 ## 2. Objectives
 
-The objective of this project is to design, implement, and deploy a cloud-native collaborative task management platform that demonstrates the following capabilities:
+The objective of this project was to design, implement, and deploy a cloud-native collaborative task management platform while applying the main infrastructure concepts covered in the course. Through the implementation, our team aimed to achieve the following:
 
-1. **Containerized deployment** — Package the application and its dependencies into Docker containers for reproducible builds across development, testing, and production environments.
-2. **Persistent stateful storage** — Maintain durable application data in PostgreSQL backed by cloud block storage, ensuring data survives container restarts, redeployments, and infrastructure changes.
-3. **Service orchestration** — Use Docker Swarm to manage service replicas, load balancing, rolling updates, and failure recovery.
-4. **Real-time collaboration** — Provide instant synchronization of task changes across connected clients using WebSocket push updates.
-5. **Security** — Implement authentication (JWT + bcrypt) and role-based access control (RBAC) to enforce multi-tenant isolation.
-6. **Automated operations** — Establish a CI/CD pipeline for automated testing and deployment, and scheduled database backups for disaster recovery.
-7. **Monitoring and observability** — Track infrastructure health and resource utilization to support reliability analysis.
+1. **Build the core application** - Support user authentication, team membership, project organization, task tracking, search, and shared task updates for small collaborative teams.
+2. **Create a reproducible deployment workflow** - Package the application with Docker and use Docker Compose for consistent local multi-container development.
+3. **Implement durable cloud-hosted state** - Store application data in PostgreSQL and back it with persistent block storage so data survives restarts and redeployments.
+4. **Deploy and orchestrate the system in the cloud** - Run the application on DigitalOcean using Docker Swarm for replication, networking, load balancing, and rolling updates.
+5. **Improve collaboration and security** - Provide real-time task synchronization with WebSockets and enforce secure multi-user access with JWT, bcrypt, and RBAC.
+6. **Establish operational reliability** - Add CI/CD automation, backup and recovery procedures, and monitoring to support maintainability and system resilience.
 
 ---
 
