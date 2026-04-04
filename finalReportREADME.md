@@ -1,4 +1,4 @@
-﻿# TaskCloud â€” Final Report
+﻿# TaskCloud Final Report
 
 ## Team Information
 
@@ -49,12 +49,12 @@ The application uses a Node.js/Express backend that serves a lightweight browser
 | Real-time messaging | `ws` + Redis | WebSocket task updates and cross-replica message fan-out |
 | Authentication and authorization | JWT + bcrypt + RBAC middleware | User authentication and role-based access control |
 | Containerization | Docker + Docker Compose | Image packaging and local multi-container development |
-| Orchestration | **Docker Swarm** | Production replicas, networking, load balancing, and rolling updates |
-| Cloud platform | **DigitalOcean** | Droplet hosting, Volumes, Container Registry, and Monitoring |
+| Orchestration | Docker Swarm | Production replicas, networking, load balancing, and rolling updates |
+| Cloud platform | DigitalOcean | Droplet hosting, Volumes, Container Registry, and Monitoring |
 | Testing | Jest + Supertest | Automated API and integration tests |
 | CI/CD | GitHub Actions | Automated test â†’ build â†’ push â†’ deploy pipeline |
 | Monitoring | DigitalOcean Monitoring | CPU, memory, disk metrics, dashboards, and alerts |
-| Backup and recovery | `pg_dump` + cron + `restore.sh` | Scheduled backups and documented restore process |
+| Backup and recovery | DigitalOcean Backups & Snapshots | Scheduled backups and documented restore process |
 | Security tools | Helmet.js + Docker Secrets | HTTP security headers and production secret management |
 
 ### Orchestration Approach: Docker Swarm
@@ -192,8 +192,7 @@ Together, these features support the application's user-facing functionality, in
 ### Option 1: Docker Compose Local Setup
 
 ```bash
-git clone <repo-url>
-cd ece-1779Cloud-TaskCloud
+git clone [<repo-url>](https://github.com/jinzhouhhh/ece-1779Cloud-TaskCloud)
 
 # Start the app, PostgreSQL, and Redis
 docker compose up --build -d
@@ -310,7 +309,83 @@ The application is deployed on a DigitalOcean Droplet running Docker Swarm. Post
 ## 8. System Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              GitHub Actions CI/CD                               │
+│                                                                                 │
+│   Push to main ──> Run Tests ──> Build Image ──> Push to Registry ──> Deploy    │
+└──────────────────────────────────────────┬──────────────────────────────────────┘
+                                           │ SSH deploy
+                                           ▼
+┌────────────────────────────────────────────────────────────────────────────────┐
+│  DigitalOcean Droplet (Ubuntu + Docker)                       Monitoring Agent │
+│  ┌───────────────────────────────────────────────────────────────────────────┐ │
+│  │                         Docker Swarm Cluster                              │ │
+│  │                                                                           │ │
+│  │  ┌──────────────────── Overlay Network (app-net) ───────────────────────┐ │ │
+│  │  │                                                                      │ │ │
+│  │  │  ┌─────────────────────┐     ┌─────────────────────┐                 │ │ │
+│  │  │  │   App Replica 1     │     │   App Replica 2     │                 │ │ │
+│  │  │  │                     │     │                     │                 │ │ │
+│  │  │  │  Express API :3000  │     │  Express API :3000  │  Load Balanced  │ │ │
+│  │  │  │  WebSocket   /ws    │     │  WebSocket   /ws    │  via Swarm      │ │ │
+│  │  │  │  Static UI   /      │     │  Static UI   /      │  Routing Mesh   │ │ │
+│  │  │  │                     │     │                     │                 │ │ │
+│  │  │  │  ┌───────────────┐  │     │  ┌───────────────┐  │  Live Broadcast │ │ │
+│  │  │  │  │  Middleware   │  │     │  │  Middleware   │  │  using          │ │ │
+│  │  │  │  │  ├─ Helmet    │  │     │  │  ├─ Helmet    │  │  Redis pub/sub  │ │ │
+│  │  │  │  │  ├─ JWT Auth  │  │     │  │  ├─ JWT Auth  │  │                 │ │ │
+│  │  │  │  │  └─ RBAC      │  │     │  │  └─ RBAC      │  │                 │ │ │
+│  │  │  │  └───────────────┘  │     │  └───────────────┘  │                 │ │ │
+│  │  │  └──────────┬──────────┘     └──────────┬──────────┘                 │ │ │
+│  │  │             │         ┌─────────────────┘                            │ │ │
+│  │  │             ▼         ▼                                              │ │ │
+│  │  │  ┌─────────────────────────┐                                         │ │ │
+│  │  │  │     PostgreSQL 16       │                                         │ │ │
+│  │  │  │                         │                                         │ │ │
+│  │  │  │  users                  │                                         │ │ │
+│  │  │  │  teams                  │                                         │ │ │
+│  │  │  │  team_memberships       │    ┌─────────────────────────┐          │ │ │
+│  │  │  │  projects               │───▶│  Docker Secret          │          │ │ │
+│  │  │  │  tasks                  │    │  /run/secrets/db_pass   │          │ │ │
+│  │  │  │                         │    │  /run/secrets/jwt_secret│          │ │ │
+│  │  │  │  GIN full-text index    │    └─────────────────────────┘          │ │ │
+│  │  │  └────────────┬────────────┘                                         │ │ │
+│  │  │               │                                                      │ │ │
+│  │  └───────────────┼──────────────────────────────────────────────────────┘ │ │
+│  │                  │                                                        │ │
+│  └──────────────────┼────────────────────────────────────────────────────────┘ │
+│                     │ bind mount                                               │
+│                     ▼                                                          │
+│  ┌─────────────────────────────────┐    ┌──────────────────────────────────┐   │
+│  │   DigitalOcean Volume (10 GiB)  │    │   Cron: Nightly pg_dump Backup   │   │
+│  │   /mnt/taskcloud_data/pgdata    │    │   /opt/taskcloud/backups/        │   │
+│  │                                 │    │   (optional: → DO Spaces)        │   │
+│  │   Persists across:              │    └──────────────────────────────────┘   │
+│  │   • container restarts          │                                           │
+│  │   • stack redeployments         │    ┌──────────────────────────────────┐   │
+│  │   • droplet rebuilds            │    │   DO Monitoring Dashboard        │   │
+│  │                                 │    │   CPU / Memory / Disk Alerts     │   │
+│  └─────────────────────────────────┘    └──────────────────────────────────┘   │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
 
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                  Clients                                        │
+│                                                                                 │
+│   Browser A ──── HTTP REST ────▶ :80 ──▶ Swarm routes to Replica 1 or 2         │
+│             ──── WebSocket ────▶ /ws ──▶ Real-time task push updates            │
+│                                                                                 │
+│   Browser B ──── HTTP REST ────▶ :80 ──▶ Swarm routes to Replica 1 or 2         │
+│             ──── WebSocket ────▶ /ws ──▶ Receives broadcast when A changes task │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+  Client ──▶ Swarm LB ──▶ App Replica ──▶ JWT Auth ──▶ RBAC Check ──▶ PostgreSQL
+                                │
+                                └──▶ broadcast(teamId, event) ──▶ WebSocket push
+                                                                   to all team
+                                                                   members online
 ```
 
 ---
