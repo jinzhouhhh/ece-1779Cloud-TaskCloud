@@ -377,9 +377,9 @@ AI initially generated WebSocket code **without a heartbeat mechanism** and with
 
 | Team Member | Contributions |
 |-------------|---------------|
-| TODO | TODO |
-| TODO | TODO |
-| TODO | TODO |
+| Jibran Shah | cloud deployment, presented app core and advanced features, |
+| Zhouhan Jin | local app implementation, functionality testing, video demo editing,  |
+| Xinyu(Cindy) Wang | functionality testing, presented system structure and live demo, final report writeup  |
 
 ---
 
