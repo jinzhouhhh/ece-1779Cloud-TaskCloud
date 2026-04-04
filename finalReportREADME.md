@@ -299,9 +299,9 @@ For the Swarm deployment, secrets can also be supplied through `DB_PASSWORD_FILE
 
 ## 7. Deployment Information
 
-**Live URL:** `http://<DROPLET_IP>` *(TODO: replace with actual IP after deployment)*
+**Live URL:** http://134.122.43.217/
 
-The application is deployed on a DigitalOcean Droplet running Docker Swarm in the `tor1` (Toronto) region. PostgreSQL data is stored on a 10 GiB DigitalOcean Volume mounted at `/mnt/taskcloud_data/pgdata`. The DigitalOcean Monitoring Agent reports CPU, memory, and disk metrics to the DigitalOcean dashboard with alert policies configured for resource exhaustion.
+The application is deployed on a DigitalOcean Droplet running Docker Swarm. PostgreSQL data is stored on an attached DigitalOcean Volume mounted at `/mnt/taskcloud_data/pgdata`. DigitalOcean Monitoring is used to observe CPU, memory, and disk usage for the deployed host.
 
 ---
 
