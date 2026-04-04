@@ -6,7 +6,7 @@ This file documents representative AI interactions that meaningfully influenced 
 
 ## Session 1: Debugging Real-Time (WebSocket) Updates Failing on Multiple Replicas
 
-### Prompt (sent to AI)
+### Prompt 
 
 **To Claude Opus (first session):**
 
@@ -18,7 +18,7 @@ This file documents representative AI interactions that meaningfully influenced 
 
 > Why sometime real-time update does not work, but sometimes it works?
 
-### AI Response (trimmed)
+### AI Response 
 
 **Claude Opus (first session):**
 
@@ -68,3 +68,35 @@ By doing these, we find our system works through mutiple tests. This is our firs
 However, we were not fully certain whether Redis Pub/Sub was a reasonable architectural choice, so we searched independently and confirmed it is a widely-used pattern for scaling WebSocket broadcasts across multiple processes/replicas. This is our second conformation.
 
 Thus, we believe: live updates work via WebSocket push to browsers. Redis Pub/Sub is a solution for multi-replica setups so that every replica knows to push, not just the one that handled the HTTP request.
+
+## Session 2: Debugging Deployment issue
+ 
+### Prompt 
+ 
+Jibran: Someone had made a commit changing the frontend, and it passed all the CI/CD tests. didn't change the website. How to diagnose what's up? Can you figure out what the issue is? It should deploy the updated code to the droplet. 
+ 
+### AI Response 
+ 
+```
+Found the problem. The CI/CD pipeline passed all 3 jobs, but the containers are still the same ones from 3 days ago ("Up 3 days"). The deploy ran, but it didn't actually update the running containers.
+
+The reason: look at the image name in the running service:
+
+registry.digitalocean.com/taskcloud-app:latest
+But the CI/CD pipeline builds and pushes to:
+
+registry.digitalocean.com/taskcloud/taskcloud-app:latest
+
+The deploy step in GitHub Actions uses the stack file directly, so it passes DOCKER_REGISTRY=registry.digitalocean.com — which produces registry.digitalocean.com/taskcloud-app (wrong), instead of registry.digitalocean.com/taskcloud/taskcloud-app (correct). The docker pull works fine because it uses the full $REGISTRY/$IMAGE_NAME, but the docker stack deploy uses the broken DOCKER_REGISTRY variable.
+
+The fix is to change the DOCKER_REGISTRY in the deploy script to include the registry name. In .github/workflows/deploy.yml, the deploy script line needs to be:
+
+TAG=latest DOCKER_REGISTRY=${{ env.REGISTRY }}/taskcloud \
+instead of:
+
+TAG=latest DOCKER_REGISTRY=${{ env.REGISTRY }} \
+```
+ 
+### What Your Team Did With It
+ 
+I made this change and committed it to the Github, and after passing 3/3 tests the deployment happened successfully.
