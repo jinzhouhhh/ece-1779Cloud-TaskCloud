@@ -39,7 +39,7 @@ The objective of this project was to design, implement, and deploy a cloud-nativ
 
 ## 3. Technical Stack
 
-The application uses a Node.js/Express backend that serves a lightweight browser frontend written in HTML, CSS, and vanilla JavaScript. PostgreSQL is used for persistent relational storage and full-text task search. Real-time updates are delivered through WebSockets, with Redis pub/sub used to support event fan-out across multiple app replicas. Docker and Docker Compose support packaging and local development, while Docker Swarm is the chosen orchestration approach for production deployment on DigitalOcean. Additional supporting tools include GitHub Actions for CI/CD, Jest and Supertest for automated testing, Helmet for HTTP hardening, and `pg_dump` plus cron for backup and recovery.
+The application uses a Node.js/Express backend that serves a lightweight browser frontend written in HTML, CSS, and vanilla JavaScript. PostgreSQL is used for persistent relational storage and full-text task search. Real-time updates are delivered through WebSockets, with Redis pub/sub used to support event fan-out across multiple app replicas. Docker and Docker Compose support packaging and local development, while Docker Swarm is the chosen orchestration approach for production deployment on DigitalOcean. Additional supporting tools include GitHub Actions for CI/CD, Jest and Supertest for automated testing, backup and recovery provided by DigitalOcean.
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
@@ -103,7 +103,7 @@ The pipeline has three stages:
 
 
 **Backup and recovery**
-A shell script (`scripts/backup.sh`) performs `pg_dump` from the running PostgreSQL container, compresses the output with gzip, and stores it in a backup directory with a 7-day retention policy. The script is designed to run from cron for nightly backups and can optionally upload backup files to DigitalOcean Spaces when `s3cmd` is configured. A companion `restore.sh` script restores a selected `.sql.gz` backup by piping it back into PostgreSQL.
+Automated backups are initiated Weekly on Sunday between 8:00am - 12:00pm using DigitalOcean Automated Backups
 
 **Security enhancements**
 - Passwords are hashed with bcrypt using 12 salt rounds before storage
@@ -122,7 +122,7 @@ The main infrastructure features described in Sections 4.1 and 4.2 fulfill the c
 - **Deployment Provider:** The system is deployed on DigitalOcean infrastructure, using a Droplet for compute and a DigitalOcean Volume for durable block storage. This satisfies the required deployment-provider component while giving the project a realistic cloud environment for service hosting, storage, and monitoring.
 - **Orchestration Approach:** Docker Swarm is used as the orchestration platform. The deployed stack includes two application replicas, Swarm routing-mesh load balancing, overlay networking, restart policies, and rolling updates. This satisfies the orchestration requirement and supports Objective 3 on service replication, load balancing, and managed updates.
 - **Monitoring and Observability:** DigitalOcean Monitoring is used to track CPU, memory, and disk metrics for the deployed host and to support dashboards and alerts for system health. This satisfies the monitoring requirement and supports Objective 7 on infrastructure visibility and reliability analysis.
-- **Advanced Features:** The project exceeds the minimum requirement of two advanced features by implementing four: real-time functionality through WebSockets, security enhancements through JWT, bcrypt, RBAC, Helmet, and Docker Secrets support, a CI/CD pipeline through GitHub Actions, and backup/recovery through automated PostgreSQL backup and restore scripts. These features collectively support Objectives 4, 5, and 6 by enabling live collaboration, secure multi-user access, automated deployment, and operational recovery.
+- **Advanced Features:** The project exceeds the minimum requirement of two advanced features by implementing four: real-time functionality through WebSockets, security enhancements through JWT, bcrypt, RBAC, Helmet, and Docker Secrets support, a CI/CD pipeline through GitHub Actions, and backup/recovery through automated backups by DigitalOcean. These features collectively support Objectives 4, 5, and 6 by enabling live collaboration, secure multi-user access, automated deployment, and operational recovery.
 
 Together, these features support the application's user-facing functionality, including team management, project organization, task tracking, search, and real-time collaborative updates, while also demonstrating the cloud-native engineering goals of the project: reproducible deployment, durable state management, orchestrated services, security, automation, and observability.
 
@@ -132,7 +132,7 @@ Together, these features support the application's user-facing functionality, in
 
 ### 5.1 Registration and Login
 
-1. Navigate to the application URL in your browser.
+1. Navigate to the application URL(http://134.122.43.217/) in your browser.
 2. Click the **Sign Up** tab, enter an email, username, and password (minimum 6 characters), then click **Create Account**.
 3. You are automatically logged in and taken to the main dashboard.
 4. To log out, click **Logout** in the top-right corner.
@@ -398,19 +398,16 @@ AI tools (GitHub Copilot, Claude) were used as development accelerators during t
 
 - **Architecture exploration:** AI helped evaluate trade-offs between Docker Swarm and Kubernetes for our project scale, and suggested the `Map<teamId, Set<WebSocket>>` room-based pub/sub pattern for real-time updates.
 - **Docker/Swarm configuration:** AI assisted with `docker-stack.yml` configuration including Docker Secrets, rolling update policies, resource limits, and volume bind-mount syntax.
-- **Debugging:** AI helped diagnose a WebSocket stale connection issue where real-time updates would intermittently fail due to the absence of a ping/pong heartbeat mechanism.
+- **Debugging:** AI helped diagnose a WebSocket stale connection issue and deployment pipeline issue. 
 - **Boilerplate and documentation:** AI generated initial Express route scaffolding, SQL schema definitions, and the CI/CD workflow structure, which were then reviewed and modified by the team.
 
-### Representative AI Limitation
+### One Representative AI Limitation
 
-AI initially generated WebSocket code **without a heartbeat mechanism** and with team subscriptions that were only set once at connection time. This caused two bugs: (1) users who created a team after connecting never received real-time updates for that team, and (2) connections that went stale due to idle timeouts appeared connected but silently dropped messages. Both issues required manual debugging with multi-browser testing to identify and were fixed by adding dynamic re-subscription logic and a server-side ping/pong heartbeat with client-side timeout detection. See `ai-session.md` for the full debugging session.
+AI initially misidentified the WebSocket issue as a missing heartbeat mechanism, along with team subscriptions being set only once at connection time. However, the root cause was that WebSocket broadcasts only reached the replica that handled the HTTP request; the problem that only surfaced after deploying with load balancing across multiple replicas. We found AI-suggested fixes sometimes led in the wrong direction and failed to catch the root cause efficiently, especially after many rounds of communication. See ai-session.md for the full debugging session.
 
 ### Verification Methods
 
-- **Automated testing:** Jest + Supertest integration tests covering health checks, authentication flows, and RBAC enforcement, run on every push via GitHub Actions CI.
-- **Manual end-to-end testing:** Multi-browser testing to verify real-time WebSocket sync, RBAC permission enforcement (admin vs. member), and task lifecycle operations.
-- **Infrastructure verification:** `docker stack services` to confirm replica counts, `docker service logs` for runtime error inspection, and DigitalOcean monitoring dashboards for resource utilization.
-- **Persistence testing:** Data survival verified by running `docker service update --force` and `docker stack rm` / redeploy cycles, confirming PostgreSQL data on the DigitalOcean Volume remained intact.
+We mainly verified AI suggestions through **manual inspection**, **direct testing** and **independent research**. For the Redis Pub/Sub fix, we ran multi-browser tests across replicas to confirm every client received real-time updates regardless of which replica handled the HTTP request. We also independently confirmed that Redis Pub/Sub is a widely-used pattern for scaling WebSocket broadcasts before committing to the approach. For the CI/CD registry path fix, we verified the deployment by checking that running containers reflected the latest image after the pipeline completed, rather than showing stale "Up 3 days" containers. When AI output was wrong — such as the first session's heartbeat diagnosis — we identified the mismatch between the suggested cause and the observed behavior through our own reasoning and discarded the fix entirely.
 
 ---
 
